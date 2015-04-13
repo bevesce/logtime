@@ -1,62 +1,37 @@
 """
 Log and show time spent on tasks.
-Using without argument will show logged time.
-Using with some text will add new task.
+Using without argument will show logged tasks with time spent on them.
+Using with some text will start new task.
 
 Usage:
-    logtime2.py [-w=<no_weeks>]
-    logtime2.py [-n=<no_tasks>] <task_description>...
-    logtime2.py -e
-    logtime2.py -n=<no_tasks>
-    logtime2.py -t=<task_num>
-    logtime2.py -f
+    logtime.py <task_description>...
+    logtime.py -e
+    logtime.py -f
+    logtime.py
 
 Options:
     -h --help                     Show this screen.
     -e --end                      End current task.
-    -n=<no_tasks> --last_n_tasks  Show last <no_tasks> task with indices.
-    -t=<task_num> --task          Return to task with <task_num> index.
-    -w=<no_weeks> --weeks         How many weeks to display [default: 1].
     -f --file                     Open file with log.
 """
-import datetime as dt
-# Personal congif:
-from config import logtime_path as path
-time_to_work_in_week = dt.timedelta(hours=20)
-time_to_work_in_day = {
-    1: dt.timedelta(hours=7),  # Mon
-    2: dt.timedelta(hours=5),  # Tue
-    3: dt.timedelta(hours=8),  # Wed
-    4: dt.timedelta(hours=8),  # Thu
-    5: dt.timedelta(hours=8),  # Fri
-    6: dt.timedelta(hours=0),  # Sat
-    7: dt.timedelta(hours=0),  # Sun
-}
 
-break_indicator = '@'
-# tasks with description starting
-# with this text are considered breaks and are not
-# counted to work time
-
-import docopt
-import re
+from datetime import datetime, timedelta
 from collections import defaultdict
+import bisect
+import docopt
+import subprocess
+from config import logtime_path
+
 import colors
 
 
-ZERO_TIME = dt.timedelta()
+DATETIME_FORMAT = '%Y-%m-%d %H:%M'
+COMMENT_INDICATOR = '#'
 
 
-def align_right(text, width=35):
-    return text.rjust(width)
-
-
-def ind(text, indention='  '):
-    return indention + text
-
-
-def format_timedelta(delta, align=False):
-    H24 = dt.timedelta(hours=24)
+def separate_timedelta(delta):
+    ZERO_TIME = timedelta()
+    H24 = timedelta(hours=24)
     minus = False
     if delta < ZERO_TIME:
         # timedelta(hours=8) - timedelta(hours=9) = -1 day, 23:00:00
@@ -65,351 +40,283 @@ def format_timedelta(delta, align=False):
         minus = True
     hours = delta.seconds / 3600
     minutes = (delta.seconds % 3600) / 60
+    return hours, minutes, minus
+
+
+def format_timedelta(delta):
+    hours, minutes, minus = separate_timedelta(delta)
     if minus:
         return '-{}:{:02d}'.format(hours, minutes)
-    elif align:
-        return '{: 2d}:{:02d}'.format(hours, minutes)
     else:
         return '{}:{:02d}'.format(hours, minutes)
 
 
-class Weeks(object):
-    def __init__(self):
-        self.weeks = defaultdict(Week)
-
-    def add_task(self, start, end, description):
-        self.weeks[self.get_week_num(start)].add_task(start, end, description)
-
-    def get_week_num(self, date):
-        return date.isocalendar()[:2]  # year and week to fully identify week
-
-    def print_summary(self, no_weeks=1):
-        sorted_weeks = sorted(self.weeks.items())[-no_weeks:]
-        for _, week in sorted_weeks:
-            week.print_summary()
+def format_timedelta_for_redmine(delta):
+    hours, minutes, minus = separate_timedelta(delta)
+    minutes = '{:.3f}'.format(minutes / 60.)
+    return '{}.{}'.format(hours, minutes[2:])
 
 
-class Week(object):
-    def __init__(self):
-        self.days = defaultdict(Day)
-        self._duration = None
+class Parser(object):
+    def __init__(self, text):
+        self.text = text.strip()
 
-    def add_task(self, start, end, description):
-        self.days[self.get_day(start)].add_task(start, end, description)
+    def parse(self):
+        for start, title, end in self._parse_to_raw():
+            yield LogItem(title, start=start, end=end)
 
-    def get_day(self, date):
-        return date.isocalendar()[2]
+    def _parse_to_raw(self):
+        prev_date = None
+        prev_title = None
+        for date, title in self._parse_lines():
+            if date:
+                if prev_title:
+                    yield (prev_date, prev_title, date)
+                    prev_title = None
+                prev_date = date
+            elif title:
+                prev_title = title
+        if prev_title:
+            yield (prev_date, prev_title, None)
 
-    def print_summary(self):
-        print self.format_title()
-        for _, day in sorted(self.days.items()):
-            day.print_summary()
-        self.print_weekend()
+    def _parse_lines(self):
+        lines = self.text.splitlines()
+        for line in lines:
+            if line.startswith(COMMENT_INDICATOR):
+                print line
+                continue
+            yield self._parse_line(line)
 
-    def format_title(self):
-        text = align_right(format_timedelta(self.time_left()))
-        color = colors.white_on_magenta if self.time_left() >= ZERO_TIME else colors.white_on_green
-        return color(text)
-
-    def time_left(self):
-        return time_to_work_in_week - self.duration()
-
-    def duration(self):
-        if self.duration_already_calculated():
-            return self._duration
-        self._duration = self.sum_days_durations()
-        return self._duration
-
-    def duration_already_calculated(self):
-        return self._duration
-
-    def sum_days_durations(self):
-        duration = dt.timedelta()
-        for day in self.days.values():
-            day.calculate_durations()
-            duration += day.work_duration
-        return duration
-
-    def print_weekend(self):
-        now = dt.datetime.now()
-        weekend = now + self.time_left()
-        c = colors.yellow
-        if weekend <= now:
-            c = colors.green
-        print c(weekend.strftime('%F %R'))
-        print colors.defc(now.strftime('%F %R'))
-
-
-class Day(object):
-    time_pattern = '%H:%M'
-
-    def __init__(self):
-        self.tasks = defaultdict(Task)
-        self.start = None
-        self.end = None
-        self.number = None
-        self.duration = None
-        self.work_duration = None
-        self.break_duration = None
-
-    def add_task(self, start, end, description):
-        self.tasks[description].add_time(start, end, description)
-        self.min_start(start)
-        self.max_end(end)
-
-    def min_start(self, new_start):
-        self.start = min(self.start, new_start) if self.start else new_start
-        self.number = self.start.isocalendar()[2]
-
-    def max_end(self, new_end):
-        self.end = max(self.end, new_end) if self.end else new_end
-
-    def print_summary(self):
-        self.calculate_durations()
-        self.print_title()
-        self.print_stats()
-        print ''
-        self.print_tasks()
-        print ''
-
-    def print_title(self):
-        print colors.on_blue(align_right(self.start.strftime('%Y-%m-%d')))
-
-    def print_stats(self):
-        print ind(self.formated_worked())
-        print ind(self.formated_start())
-        print ind(self.formated_end())
-        print ind(self.formated_time_left())
-
-    def print_tasks(self):
-        for task in sorted(self.tasks.values(), key=lambda t: t.description)[::-1]:
-            task.print_summary()
-
-    def formated_start(self):
-        return 'Start  {}'.format(self.start.strftime(self.time_pattern))
-
-    def formated_end(self):
-        this_day = time_to_work_in_day[self.number]
-        end = (self.start + this_day + self.break_duration).strftime(self.time_pattern)
-        return 'End    {}'.format(end)
-
-    def formated_time_left(self):
-        color = colors.green if self.time_left() <= ZERO_TIME else colors.blue
-        return color('Left   {}'.format(
-            format_timedelta(self.time_left(), align=True)
-        ))
-
-    def time_left(self):
-        this_day = time_to_work_in_day[self.number]
-        return this_day - self.work_duration
-
-    def formated_worked(self):
-        return 'Worked {} = {} - {}'.format(
-            self.formated_work_duration(),
-            format_timedelta(self.duration),
-            format_timedelta(self.break_duration),
-        )
-
-    def formated_work_duration(self):
-        return format_timedelta(self.work_duration, align=True)
-
-    def calculate_durations(self):
-        if all([self.duration, self.work_duration, self.break_duration]):
-            return
-        self.duration = ZERO_TIME
-        self.work_duration = ZERO_TIME
-        self.break_duration = ZERO_TIME
-        for task in self.tasks.values():
-            self.work_duration += task.duration_work()
-            self.break_duration += task.duration_break()
-            self.duration += task.duration()
-
-
-class Task(object):
-    def __init__(self, description=None):
-        self._duration = dt.timedelta()
-        self.description = description
-        self.start = None
-        self.end = None
-
-    def add_time(self, start, end, description=None):
-        self.description = description or self.description
-        self.is_break = self._check_if_break(description)
-        self._duration += end - start
-        self.start = min(self.start, start) if self.start else start
-        self.end = min(self.end, end) if self.end else end
-
-    def _check_if_break(self, description):
-        return description.startswith(break_indicator)
-
-    def duration(self):
-        return self._duration
-
-    def duration_work(self):
-        if self.is_break:
-            return dt.timedelta()
-        else:
-            return self.duration()
-
-    def duration_break(self):
-        if self.is_break:
-            return self.duration()
-        else:
-            return dt.timedelta()
-
-    def print_summary(self):
-        print ind(self.formated_duration() + ' ' + self.description)
-
-    def formated_duration(self):
-        return format_timedelta(self._duration)
-
-
-class Log(object):
-    full_line_template = '{start} > {end} : {description}'
-    full_line_pattern = re.compile(
-        r'(\d\d\d\d-\d\d-\d\d \d\d:\d\d) > (\d\d\d\d-\d\d-\d\d \d\d:\d\d) : (.*)'
-    )
-    not_ended_line_template = '{start} : {description}'
-    not_ended_line_pattern = re.compile(
-        r'(\d\d\d\d-\d\d-\d\d \d\d:\d\d) : (.*)'
-    )
-    time_pattern = '%Y-%m-%d %H:%M'
-
-    def __init__(self, path=path):
-        self.path = path
-        self._lines = self._read_lines()
-        self._now = dt.datetime.now()
-
-    def _read_lines(self):
+    def _parse_line(self, line):
         try:
-            with open(path, 'r') as f:
-                log = f.read().splitlines()
-        except IOError:
-            open(path, 'w').close()
-            log = []
-        return log
+            date = datetime.strptime(line, DATETIME_FORMAT)
+            title = None
+        except ValueError:
+            date = None
+            title = line
+        return date, title
 
-    def add_task(self, description):
-        self.end()
-        self._lines.append(self._format_new_task(description))
 
-    def end(self):
-        if not self._last_line_is_ended():
-            self._end_last_line()
+class LogItem(object):
+    DEFAULT_START_DATE = datetime(1900, 01, 01, 00, 00)
+    BREAK_INDICATOR = '@'
 
-    def repeat_task(self, task_index):
-        task_index += 1
-        task_line = self._lines[-task_index]
-        description = self.get_desciption(task_line)
-        if description:
-            self.add_task(description)
+    def __init__(self, title, start, end):
+        self.title = title
+        self.start = start or self.DEFAULT_START_DATE
+        self.end = end or datetime.now()
 
-    def get_desciption(self, line):
-        full_line_match = self.full_line_pattern.match(line)
-        if full_line_match:
-            return full_line_match.group(3)
-        not_ended_line_match = self.not_ended_line_pattern.match(line)
-        if not_ended_line_match:
-            return not_ended_line_match.group(2)
+    @property
+    def duration(self):
+        return self.end - self.start
 
-    def _last_line_is_ended(self):
-        if self._lines:
-            return not self.not_ended_line_pattern.match(self._lines[-1])
+    @property
+    def is_break(self):
+        return self.title.startswith(self.BREAK_INDICATOR)
+
+    @property
+    def year(self):
+        return self.start.year
+
+    @property
+    def month(self):
+        return (self.start.year, self.start.month)
+
+    @property
+    def week(self):
+        return (self.start.year, self.start.isocalendar()[1])
+
+    @property
+    def day(self):
+        return (self.start.year, self.start.month, self.start.day)
+
+    def __repr__(self):
+        return 'LogItem("{}", start={}, end={})'.format(
+            self.title, repr(self.start), repr(self.end)
+        )
+
+
+class SomeTime(object):
+    def __init__(self):
+        self.duration = timedelta()
+        self.break_duration = timedelta()
+        if self.subtime_class:
+            self.subtimes = defaultdict(self.subtime_class)
+        self.keys = []
+
+    def add(self, logitem):
+        self._add_duration(logitem)
+        bisect.insort_left(self.keys, self.subtime_key(logitem))
+        self.subtimes[self.subtime_key(logitem)].add(logitem)
+
+    def _add_duration(self, logitem):
+        if logitem.is_break:
+            self.break_duration += logitem.duration
         else:
-            return False
+            self.duration += logitem.duration
 
-    def _end_last_line(self):
-        if self._lines:
-            match = self.not_ended_line_pattern.match(self._lines[-1])
-            self._lines[-1] = self._format_full_task(
-                start=match.group(1),
-                description=match.group(2),
-                end=self._now.strftime(self.time_pattern),
-            )
+    def newest_subtime(self):
+        return self.subtimes[self.keys[-1]]
 
-    def _format_full_task(self, description, start, end):
-        return self.full_line_template.format(
-            start=start, description=description, end=end
+
+class Task(SomeTime):
+    subtime_class = None
+
+    def __init__(self):
+        self.logitems = []
+        self.title = None
+        self.duration = timedelta()
+
+    def add(self, logitem):
+        self.title = logitem.title
+        self.logitems.append(logitem)
+        self.duration += logitem.duration
+
+    @property
+    def is_break(self):
+        return self.title.startswith(LogItem.BREAK_INDICATOR)
+
+
+class Day(SomeTime):
+    subtime_class = Task
+
+    def subtime_key(self, logitem):
+        return logitem.title
+
+    def iter_tasks(self):
+        for k in self.keys:
+            yield self.subtimes[k]
+
+
+class Week(SomeTime):
+    subtime_class = Day
+
+    def subtime_key(self, logitem):
+        return logitem.day
+
+    def newest_day(self):
+        return self.newest_subtime()
+
+
+class Month(SomeTime):
+    subtime_class = Week
+
+    def subtime_key(self, logitem):
+        return logitem.week
+
+    def newest_week(self):
+        return self.newest_subtime()
+
+
+class Year(SomeTime):
+    subtime_class = Month
+
+    def subtime_key(self, logitem):
+        return logitem.month
+
+    def newest_month(self):
+        return self.newest_subtime()
+
+
+class Calendar(SomeTime):
+    subtime_class = Year
+
+    @classmethod
+    def from_file(cls, path):
+        return Calendar(Parser(open(logtime_path).read()).parse())
+
+    def __init__(self, logitems):
+        super(Calendar, self).__init__()
+        self.years = defaultdict(self.subtime_class)
+        for logitem in logitems:
+            self.add(logitem)
+        self.keys.sort()
+
+    def subtime_key(self, logitem):
+        return logitem.year
+
+    def newest_year(self):
+        return self.newest_subtime()
+
+
+class Printer(object):
+    def today_summary(self, calendar):
+        print ''
+        year = calendar.newest_year()
+        self._today_summary_year(year)
+        month = year.newest_month()
+        self._today_summary_month(month)
+        week = month.newest_week()
+        self._today_summary_week(week)
+        day = week.newest_day()
+        print ''
+        self._today_summary_day(day)
+        print ''
+        self._today_summary_tasks(day)
+
+    def _today_summary_year(self, year):
+        pass
+
+    def _today_summary_month(self, month):
+        print 'month:', format_timedelta(month.duration)
+
+    def _today_summary_week(self, week):
+        print 'week: ', format_timedelta(week.duration)
+
+    def _today_summary_day(self, day):
+        print 'today: {} {}= {} - {}{}'.format(
+            format_timedelta(day.duration),
+            colors.GRAY,
+            format_timedelta(day.duration + day.break_duration),
+            format_timedelta(day.break_duration),
+            colors.DEFC,
         )
 
-    def _format_new_task(self, description):
-        return self.not_ended_line_template.format(
-            start=self._now.strftime(self.time_pattern),
-            description=description
-        )
+    def _today_summary_tasks(self, day):
+        for task in day.iter_tasks():
+            if task.is_break:
+                print colors.gray('{} {} {}'.format(
+                    format_timedelta(task.duration),
+                    format_timedelta_for_redmine(task.duration),
+                    task.title
+                ))
+            else:
+                print '{} {} {}'.format(
+                    format_timedelta(task.duration),
+                    colors.gray(format_timedelta_for_redmine(task.duration)),
+                    task.title
+                )
 
-    def save(self):
-        with open(path, 'w') as f:
-            f.write('\n'.join(self._lines))
 
-    def print_summary(self, no_weeks=1):
-        self._parse()
-        self.weeks.print_summary(no_weeks)
+def start_task(title):
+    new_line = make_timestamp() + '\n' + ' '.join(title)
+    append_line(new_line)
 
-    def _parse(self):
-        self.weeks = Weeks()
-        for line in self._lines:
-            start, end, description = None, None, None
-            match = self.full_line_pattern.match(line)
-            half_match = self.not_ended_line_pattern.match(line)
-            if match:
-                start, end = self._parse_dates_from_match(match)
-                description = self._desciption_from_match(match)
-            elif half_match:
-                    start, end = self._parse_date_from_half_match(half_match)
-                    description = self._desciption_from_half_match(half_match)
-            if start and end:
-                self.weeks.add_task(start, end, description)
 
-    def _parse_dates_from_match(self, match):
-        return (
-            dt.datetime.strptime(match.group(1), self.time_pattern),
-            dt.datetime.strptime(match.group(2), self.time_pattern)
-        )
+def end_task():
+    new_line = make_timestamp()
+    append_line(new_line)
 
-    def _parse_date_from_half_match(self, match):
-        return (
-            dt.datetime.strptime(match.group(1), self.time_pattern),
-            dt.datetime.now()
-        )
 
-    def _desciption_from_match(self, match):
-        return match.group(3)
+def make_timestamp():
+    return datetime.now().strftime(DATETIME_FORMAT)
 
-    def _desciption_from_half_match(self, match):
-        return match.group(2)
 
-    def show_short(self, no_tasks):
-        if no_tasks == 0:
-            return
-        print '\n'.join(
-            ['{}: {}'.format(no_tasks - i - 1, l) for i, l in enumerate(self._lines[-no_tasks:])]
-        )
+def append_line(line):
+    old = open(logtime_path).read()
+    if not old.endswith('\n'):
+        line = '\n' + line
+    open(logtime_path, 'a').write(line)
 
 
 if __name__ == '__main__':
-    log = Log()
     arguments = docopt.docopt(__doc__)
-    last_n_tasks = int(arguments['--last_n_tasks'] if arguments['--last_n_tasks'] else 5)
     if arguments['<task_description>']:
-        log.add_task(
-            description=' '.join(arguments['<task_description>']),
-        )
-        log.save()
-        log.show_short(last_n_tasks)
-    elif arguments['--task']:
-        task_num = int(arguments['--task'])
-        log.repeat_task(task_num)
-        log.save()
-        log.show_short(last_n_tasks)
-    elif arguments['--last_n_tasks']:
-        log.show_short(last_n_tasks)
-    elif arguments['--end']:
-        log.end()
-        log.save()
-        log.show_short(last_n_tasks)
-    elif arguments['--file']:
-        import subprocess
-        subprocess.call(['subl', path])
-    else:
-        log.print_summary(no_weeks=int(arguments['--weeks']))
+        start_task(arguments['<task_description>'])
+    if arguments['--end']:
+        end_task()
+    if arguments['--file']:
+        subprocess.call(['subl', logtime_path])
+    Printer().today_summary(
+        Calendar.from_file(logtime_path)
+    )
