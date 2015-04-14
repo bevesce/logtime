@@ -24,8 +24,9 @@ from config import logtime_path
 
 import colors
 
-MONTH_GOAL = timedelta(hours=(3 * 4 + 10 * 8))
+DAYS_LEFT = 3
 WEEK_GOAL = timedelta(hours=(1 * 4 + 3 * 8))
+MONTH_GOAL = timedelta(hours=(3 * 4 + 10 * 8))
 
 DATETIME_FORMAT = '%Y-%m-%d %H:%M'
 COMMENT_INDICATOR = '#'
@@ -33,6 +34,76 @@ BREAK_INDICATOR = '@'
 PROGESS_BAR_SIZE = 40
 
 ZERO_TIME = timedelta()
+
+
+class Printer(object):
+    def today_summary(self, calendar):
+        year = calendar.newest_year()
+        self._today_summary_year(year)
+        month = year.newest_month()
+        self._today_summary_month(month)
+        week = month.newest_week()
+        self._today_summary_week(week)
+        day = week.newest_day()
+        avg_time_for_days_left = timedelta(
+            seconds=((WEEK_GOAL - (week.duration - day.duration)).total_seconds() / DAYS_LEFT)
+        )
+        print ''
+        print '       ', colors.gray(format_timedelta(avg_time_for_days_left))
+        self._today_summary_day(day)
+        day_left = avg_time_for_days_left - day.duration
+        if day_left > ZERO_TIME:
+            print '       ', colors.cyan(format_timedelta(day_left))
+        else:
+            print '      ', colors.green(format_timedelta(day_left))
+        print ''
+        self._today_summary_tasks(day)
+
+    def _today_summary_year(self, year):
+        pass
+
+    def _today_summary_month(self, month):
+        self._progress_summary('month', month.duration, MONTH_GOAL)
+
+    def _today_summary_week(self, week):
+        self._progress_summary('week ', week.duration, WEEK_GOAL)
+
+    def _progress_summary(self, title, duration, goal):
+        done = int(duration.total_seconds() / (goal.total_seconds() + 0.) * PROGESS_BAR_SIZE)
+        remaining = PROGESS_BAR_SIZE - done
+        if duration >= goal:
+            print colors.on_green(PROGESS_BAR_SIZE * ' ')
+        else:
+            print colors.on_white(done * ' ') + colors.on_gray(' ' * remaining)
+        print '{}   {} {}'.format(
+            title,
+            format_timedelta(duration),
+            colors.gray('/ ' + format_timedelta(goal))
+        )
+
+    def _today_summary_day(self, day):
+        print 'today   {} {}= {} - {}{}'.format(
+            format_timedelta(day.duration),
+            colors.GRAY,
+            format_timedelta(day.duration + day.break_duration),
+            format_timedelta(day.break_duration),
+            colors.DEFC,
+        )
+
+    def _today_summary_tasks(self, day):
+        for task in day.iter_tasks():
+            if task.is_break:
+                print colors.gray('{} {} {}'.format(
+                    format_timedelta(task.duration),
+                    format_timedelta_for_redmine(task.duration),
+                    task.title
+                ))
+            else:
+                print '{} {} {}'.format(
+                    format_timedelta(task.duration),
+                    colors.gray(format_timedelta_for_redmine(task.duration)),
+                    task.title
+                )
 
 
 def separate_timedelta(delta):
@@ -145,7 +216,9 @@ class SomeTime(object):
 
     def add(self, logitem):
         self._add_duration(logitem)
-        bisect.insort_left(self.keys, self.subtime_key(logitem))
+        key = self.subtime_key(logitem)
+        if key not in self.keys:
+            bisect.insort_left(self.keys, key)
         self.subtimes[self.subtime_key(logitem)].add(logitem)
 
     def _add_duration(self, logitem):
@@ -236,76 +309,6 @@ class Calendar(SomeTime):
 
     def newest_year(self):
         return self.newest_subtime()
-
-
-class Printer(object):
-    def today_summary(self, calendar):
-        year = calendar.newest_year()
-        self._today_summary_year(year)
-        month = year.newest_month()
-        self._today_summary_month(month)
-        week = month.newest_week()
-        self._today_summary_week(week)
-        day = week.newest_day()
-        avg_time_for_days_left = timedelta(
-            seconds=((WEEK_GOAL - (week.duration - day.duration)).total_seconds() / 3)
-        )
-        print ''
-        print '       ', colors.gray(format_timedelta(avg_time_for_days_left))
-        self._today_summary_day(day)
-        day_left = avg_time_for_days_left - day.duration
-        if day_left > ZERO_TIME:
-            print '       ', colors.cyan(format_timedelta(day_left))
-        else:
-            print '      ', colors.green(format_timedelta(day_left))
-        print ''
-        self._today_summary_tasks(day)
-
-    def _today_summary_year(self, year):
-        pass
-
-    def _today_summary_month(self, month):
-        self._progress_summary('month', month.duration, MONTH_GOAL)
-
-    def _today_summary_week(self, week):
-        self._progress_summary('week ', week.duration, WEEK_GOAL)
-
-    def _progress_summary(self, title, duration, goal):
-        done = int(duration.total_seconds() / (goal.total_seconds() + 0.) * PROGESS_BAR_SIZE)
-        remaining = PROGESS_BAR_SIZE - done
-        if duration >= goal:
-            print colors.on_green(PROGESS_BAR_SIZE * ' ')
-        else:
-            print colors.on_white(done * ' ') + colors.on_gray(' ' * remaining)
-        print '{}   {} {}'.format(
-            title,
-            format_timedelta(duration),
-            colors.gray('/ ' + format_timedelta(goal))
-        )
-
-    def _today_summary_day(self, day):
-        print 'today   {} {}= {} - {}{}'.format(
-            format_timedelta(day.duration),
-            colors.GRAY,
-            format_timedelta(day.duration + day.break_duration),
-            format_timedelta(day.break_duration),
-            colors.DEFC,
-        )
-
-    def _today_summary_tasks(self, day):
-        for task in day.iter_tasks():
-            if task.is_break:
-                print colors.gray('{} {} {}'.format(
-                    format_timedelta(task.duration),
-                    format_timedelta_for_redmine(task.duration),
-                    task.title
-                ))
-            else:
-                print '{} {} {}'.format(
-                    format_timedelta(task.duration),
-                    colors.gray(format_timedelta_for_redmine(task.duration)),
-                    task.title
-                )
 
 
 def start_task(title):
