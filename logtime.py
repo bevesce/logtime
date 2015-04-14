@@ -24,35 +24,30 @@ from config import logtime_path
 
 import colors
 
+MONTH_GOAL = timedelta(hours=(3 * 4 + 10 * 8))
+WEEK_GOAL = timedelta(hours=(1 * 4 + 3 * 8))
 
 DATETIME_FORMAT = '%Y-%m-%d %H:%M'
 COMMENT_INDICATOR = '#'
+BREAK_INDICATOR = '@'
+PROGESS_BAR_SIZE = 40
+
+ZERO_TIME = timedelta()
 
 
 def separate_timedelta(delta):
-    ZERO_TIME = timedelta()
-    H24 = timedelta(hours=24)
-    minus = False
-    if delta < ZERO_TIME:
-        # timedelta(hours=8) - timedelta(hours=9) = -1 day, 23:00:00
-        # so it need to be flipped to 1 hour
-        delta = H24 - delta
-        minus = True
-    hours = delta.seconds / 3600
-    minutes = (delta.seconds % 3600) / 60
-    return hours, minutes, minus
+    hours = delta.total_seconds() / 3600.
+    minutes = abs((hours - int(hours)) * 60)
+    return int(hours), int(minutes)
 
 
 def format_timedelta(delta):
-    hours, minutes, minus = separate_timedelta(delta)
-    if minus:
-        return '-{}:{:02d}'.format(hours, minutes)
-    else:
-        return '{}:{:02d}'.format(hours, minutes)
+    hours, minutes = separate_timedelta(delta)
+    return '{}:{:02d}'.format(hours, minutes)
 
 
 def format_timedelta_for_redmine(delta):
-    hours, minutes, minus = separate_timedelta(delta)
+    hours, minutes = separate_timedelta(delta)
     minutes = '{:.3f}'.format(minutes / 60.)
     return '{}.{}'.format(hours, minutes[2:])
 
@@ -81,11 +76,16 @@ class Parser(object):
 
     def _parse_lines(self):
         lines = self.text.splitlines()
+        comment = None
         for line in lines:
+            if not line:
+                continue
             if line.startswith(COMMENT_INDICATOR):
-                print line
+                comment = line
                 continue
             yield self._parse_line(line)
+        if comment:
+            print comment
 
     def _parse_line(self, line):
         try:
@@ -99,7 +99,6 @@ class Parser(object):
 
 class LogItem(object):
     DEFAULT_START_DATE = datetime(1900, 01, 01, 00, 00)
-    BREAK_INDICATOR = '@'
 
     def __init__(self, title, start, end):
         self.title = title
@@ -112,7 +111,7 @@ class LogItem(object):
 
     @property
     def is_break(self):
-        return self.title.startswith(self.BREAK_INDICATOR)
+        return self.title.startswith(BREAK_INDICATOR)
 
     @property
     def year(self):
@@ -174,7 +173,7 @@ class Task(SomeTime):
 
     @property
     def is_break(self):
-        return self.title.startswith(LogItem.BREAK_INDICATOR)
+        return self.title.startswith(BREAK_INDICATOR)
 
 
 class Day(SomeTime):
@@ -241,7 +240,6 @@ class Calendar(SomeTime):
 
 class Printer(object):
     def today_summary(self, calendar):
-        print ''
         year = calendar.newest_year()
         self._today_summary_year(year)
         month = year.newest_month()
@@ -249,8 +247,17 @@ class Printer(object):
         week = month.newest_week()
         self._today_summary_week(week)
         day = week.newest_day()
+        avg_time_for_days_left = timedelta(
+            seconds=((WEEK_GOAL - (week.duration - day.duration)).total_seconds() / 3)
+        )
         print ''
+        print '       ', colors.gray(format_timedelta(avg_time_for_days_left))
         self._today_summary_day(day)
+        day_left = avg_time_for_days_left - day.duration
+        if day_left > ZERO_TIME:
+            print '       ', colors.cyan(format_timedelta(day_left))
+        else:
+            print '      ', colors.green(format_timedelta(day_left))
         print ''
         self._today_summary_tasks(day)
 
@@ -258,13 +265,26 @@ class Printer(object):
         pass
 
     def _today_summary_month(self, month):
-        print 'month:', format_timedelta(month.duration)
+        self._progress_summary('month', month.duration, MONTH_GOAL)
 
     def _today_summary_week(self, week):
-        print 'week: ', format_timedelta(week.duration)
+        self._progress_summary('week ', week.duration, WEEK_GOAL)
+
+    def _progress_summary(self, title, duration, goal):
+        done = int(duration.total_seconds() / (goal.total_seconds() + 0.) * PROGESS_BAR_SIZE)
+        remaining = PROGESS_BAR_SIZE - done
+        if duration >= goal:
+            print colors.on_green(PROGESS_BAR_SIZE * ' ')
+        else:
+            print colors.on_white(done * ' ') + colors.on_gray(' ' * remaining)
+        print '{}   {} {}'.format(
+            title,
+            format_timedelta(duration),
+            colors.gray('/ ' + format_timedelta(goal))
+        )
 
     def _today_summary_day(self, day):
-        print 'today: {} {}= {} - {}{}'.format(
+        print 'today   {} {}= {} - {}{}'.format(
             format_timedelta(day.duration),
             colors.GRAY,
             format_timedelta(day.duration + day.break_duration),
