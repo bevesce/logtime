@@ -48,15 +48,8 @@ class Printer(object):
         avg_time_for_days_left = timedelta(
             seconds=((WEEK_GOAL - (week.duration - day.duration)).total_seconds() / DAYS_LEFT)
         )
-        print ''
-        print '       ', colors.gray(format_timedelta(avg_time_for_days_left))
-        self._today_summary_day(day)
-        day_left = avg_time_for_days_left - day.duration
-        if day_left > ZERO_TIME:
-            print '       ', colors.cyan(format_timedelta(day_left))
-        else:
-            print '      ', colors.green(format_timedelta(day_left))
-        print ''
+        self._progress_summary('today', day.duration, avg_time_for_days_left)
+        # self._today_summary_day(day)
         self._today_summary_tasks(day)
 
     def _today_summary_year(self, year):
@@ -75,11 +68,13 @@ class Printer(object):
             print colors.on_green(PROGESS_BAR_SIZE * ' ')
         else:
             print colors.on_white(done * ' ') + colors.on_gray(' ' * remaining)
-        print '{}   {} {}'.format(
+        print '{}   {} {} {}'.format(
             title,
             format_timedelta(duration),
-            colors.gray('/ ' + format_timedelta(goal))
+            colors.gray('- ' + format_timedelta(goal) + ' ='),
+            format_timedelta(goal - duration),
         )
+        print ''
 
     def _today_summary_day(self, day):
         print 'today   {} {}= {} - {}{}'.format(
