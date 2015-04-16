@@ -7,12 +7,14 @@ Usage:
     logtime.py <task_description>...
     logtime.py -e
     logtime.py -f
+    logtime.py -s
     logtime.py
 
 Options:
     -h --help                     Show this screen.
     -e --end                      End current task.
     -f --file                     Open file with log.
+    -s --script                   Open file with source code.
 """
 
 from datetime import datetime, timedelta
@@ -20,11 +22,12 @@ from collections import defaultdict
 import bisect
 import docopt
 import subprocess
+import config
 from config import logtime_path
 
 import colors
 
-DAYS_LEFT = 3
+DAYS_LEFT = 2
 WEEK_GOAL = timedelta(hours=(1 * 4 + 3 * 8))
 MONTH_GOAL = timedelta(hours=(3 * 4 + 10 * 8))
 
@@ -201,6 +204,15 @@ class LogItem(object):
         )
 
 
+class CalendarKey(LogItem):
+    def __init__(self, start):
+        super(CalendarKey, self).__init__('', start=start, end=None)
+
+    @staticmethod
+    def now():
+        return CalendarKey(datetime.now())
+
+
 class SomeTime(object):
     def __init__(self):
         self.duration = timedelta()
@@ -225,6 +237,17 @@ class SomeTime(object):
     def newest_subtime(self):
         return self.subtimes[self.keys[-1]]
 
+    def get_day(self, some_datetime):
+        sub = self.subtimes.get(self.subtime_key(some_datetime), None)
+        if not sub:
+            return None
+        return sub.get_day(some_datetime)
+
+    def all_tasks(self):
+        for key in self.keys:
+            for task in self.subtimes[key].all_tasks():
+                yield task
+
 
 class Task(SomeTime):
     subtime_class = None
@@ -243,6 +266,9 @@ class Task(SomeTime):
     def is_break(self):
         return self.title.startswith(BREAK_INDICATOR)
 
+    def all_tasks(self):
+        return [self]
+
 
 class Day(SomeTime):
     subtime_class = Task
@@ -253,6 +279,9 @@ class Day(SomeTime):
     def iter_tasks(self):
         for k in self.keys:
             yield self.subtimes[k]
+
+    def get_day(self, some_datetime):
+        return self
 
 
 class Week(SomeTime):
@@ -307,7 +336,7 @@ class Calendar(SomeTime):
 
 
 def start_task(title):
-    new_line = make_timestamp() + '\n' + ' '.join(title)
+    new_line = make_timestamp() + '\n' + title
     append_line(new_line)
 
 
@@ -327,14 +356,19 @@ def append_line(line):
     open(logtime_path, 'a').write(line)
 
 
+def summarize():
+    Printer().today_summary(
+        Calendar.from_file(logtime_path)
+    )
+
 if __name__ == '__main__':
     arguments = docopt.docopt(__doc__)
     if arguments['<task_description>']:
-        start_task(arguments['<task_description>'])
+        start_task(' '.join(arguments['<task_description>']))
     if arguments['--end']:
         end_task()
     if arguments['--file']:
         subprocess.call(['subl', logtime_path])
-    Printer().today_summary(
-        Calendar.from_file(logtime_path)
-    )
+    if arguments['--script']:
+        subprocess.call(['subl', config.logtime_script_path])
+    summarize()
