@@ -49,10 +49,9 @@ class RedmineEntry(object):
         return int(raw_input())
 
     def push(self):
-        print self.description, self.activity_id, self.issue_id, self.hours
-        # redmine.time_entry.create(
-        #     issue_id=self.issue_id, hours=self.hours, activity_id=self.activity_id, comments=self.description[:255]
-        # )
+        redmine.time_entry.create(
+            issue_id=self.issue_id, hours=self.hours, activity_id=self.activity_id, comments=self.description[:255]
+        )
         print '{:.03f} {} {}#{} {}{}'.format(
             self.hours, self.description, colors.GRAY, self.issue_id, self.activity_id, colors.DEFC
         )

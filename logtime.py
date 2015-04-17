@@ -27,11 +27,12 @@ from config import logtime_path
 
 import colors
 
-DAYS_LEFT = 2
+DAYS_LEFT = 1
 WEEK_GOAL = timedelta(hours=(1 * 4 + 3 * 8))
 MONTH_GOAL = timedelta(hours=(3 * 4 + 10 * 8))
 
 DATETIME_FORMAT = '%Y-%m-%d %H:%M'
+TIME_FORMAT = '%H:%M'
 COMMENT_INDICATOR = '#'
 BREAK_INDICATOR = '@'
 PROGESS_BAR_SIZE = 40
@@ -54,6 +55,10 @@ class Printer(object):
         self._progress_summary('today', day.duration, avg_time_for_days_left)
         # self._today_summary_day(day)
         self._today_summary_tasks(day)
+        print ''
+        print (
+            datetime.now() + avg_time_for_days_left - day.duration
+        ).strftime(TIME_FORMAT), colors.gray(datetime.now().strftime(TIME_FORMAT))
 
     def _today_summary_year(self, year):
         pass
@@ -90,7 +95,13 @@ class Printer(object):
 
     def _today_summary_tasks(self, day):
         for task in day.iter_tasks():
-            if task.is_break:
+            if task.is_current:
+                print colors.blue('{} {} {}'.format(
+                    format_timedelta(task.duration),
+                    format_timedelta_for_redmine(task.duration),
+                    task.title
+                ))
+            elif task.is_break:
                 print colors.gray('{} {} {}'.format(
                     format_timedelta(task.duration),
                     format_timedelta_for_redmine(task.duration),
@@ -173,6 +184,7 @@ class LogItem(object):
         self.title = title
         self.start = start or self.DEFAULT_START_DATE
         self.end = end or datetime.now()
+        self.is_current = not end
 
     @property
     def duration(self):
@@ -256,11 +268,13 @@ class Task(SomeTime):
         self.logitems = []
         self.title = None
         self.duration = timedelta()
+        self.is_current = False
 
     def add(self, logitem):
         self.title = logitem.title
         self.logitems.append(logitem)
         self.duration += logitem.duration
+        self.is_current = self.is_current or logitem.is_current
 
     @property
     def is_break(self):
