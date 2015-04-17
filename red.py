@@ -10,6 +10,10 @@ redmine = Redmine(
 
 
 def make_mnemonic(text):
+    """
+    Grafika -> gr
+    Spotkanie techniczne -> st
+    """
     text = text.lower()
     splited = text.split(' ')
     if len(splited) == 1:
@@ -57,10 +61,11 @@ class RedmineEntry(object):
         )
 
 
-day = logtime.Calendar.from_file(logtime.logtime_path).get_day(
-    logtime.CalendarKey.now()
-)
-for task in day.iter_tasks():
-    if task.is_break:
-        continue
-    RedmineEntry(task.title, task.duration).push()
+if __name__ == '__main__':
+    day = logtime.Calendar.from_file(logtime.logtime_path).get_day(
+        logtime.CalendarKey.now()
+    )
+    for task in day.iter_tasks():
+        if task.is_break:
+            continue
+        RedmineEntry(task.title, task.duration).push()
