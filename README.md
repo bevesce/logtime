@@ -42,6 +42,6 @@ Activities can be configured in config.py, activity mnemonic is created from fir
 
 # lp
 
-`Lp` uses [selector](https://github.com/bevesce/selector) to display previous entries and lets search then and choose one to begin working on it once again.
+`Lp` uses [selector](https://github.com/bevesce/selector) to display previous entries and lets you search them and choose one to begin working on it once again.
 
 ![](http://procrastinationlog.net/images/lp.png)
