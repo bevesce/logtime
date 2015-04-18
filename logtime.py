@@ -1,14 +1,15 @@
+#!/usr/bin/env python
 """
 Log and show time spent on tasks.
 Using without argument will show logged tasks with time spent on them.
 Using with some text will start new task.
 
 Usage:
+    logtime.py
     logtime.py <task_description>...
     logtime.py -e
     logtime.py -f
     logtime.py -s
-    logtime.py
 
 Options:
     -h --help                     Show this screen.
@@ -27,9 +28,9 @@ from config import logtime_path
 
 import colors
 
-DAYS_LEFT = 1
-WEEK_GOAL = timedelta(hours=(1 * 4 + 3 * 8))
-MONTH_GOAL = timedelta(hours=(3 * 4 + 10 * 8))
+DAYS_LEFT = 5
+WEEK_GOAL = timedelta(hours=(5 * 8))
+MONTH_GOAL = timedelta(hours=(4 * 5 * 8))
 
 DATETIME_FORMAT = '%Y-%m-%d %H:%M'
 TIME_FORMAT = '%H:%M'
@@ -43,7 +44,6 @@ ZERO_TIME = timedelta()
 class Printer(object):
     def today_summary(self, calendar):
         year = calendar.newest_year()
-        self._today_summary_year(year)
         month = year.newest_month()
         self._today_summary_month(month)
         week = month.newest_week()
@@ -53,15 +53,11 @@ class Printer(object):
             seconds=((WEEK_GOAL - (week.duration - day.duration)).total_seconds() / DAYS_LEFT)
         )
         self._progress_summary('today', day.duration, avg_time_for_days_left)
-        # self._today_summary_day(day)
         self._today_summary_tasks(day)
         print ''
         print (
             datetime.now() + avg_time_for_days_left - day.duration
         ).strftime(TIME_FORMAT), colors.gray(datetime.now().strftime(TIME_FORMAT))
-
-    def _today_summary_year(self, year):
-        pass
 
     def _today_summary_month(self, month):
         self._progress_summary('month', month.duration, MONTH_GOAL)
@@ -364,7 +360,10 @@ def make_timestamp():
 
 
 def append_line(line):
-    old = open(logtime_path).read()
+    try:
+        old = open(logtime_path).read()
+    except IOError:
+        old = ''
     if not old.endswith('\n'):
         line = '\n' + line
     open(logtime_path, 'a').write(line)

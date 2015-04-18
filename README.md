@@ -1,29 +1,47 @@
 # logtime
 
+Little and quick utility to log what are you spending time on. Run the script with description of what you are doing to start logging and run without any arguments to show statistics.
+
 ![logtime](http://procrastinationlog.net/images/logtime.png)
 
-Log and show time spent on tasks.
-Using without argument will show logged tasks with time spent on them.
-Using with some text will start new task.
-Prepend task description with *@* to mark it as a break.
-Prepend task description with *#* to mark it as a comment.
+Entries that are prepended with @ are considered breaks and are not counted into goals. `Printer` that I'm using displays only todays entries and progress for current month, week and day but you can implement another one. Items from log are parsed to `Calendar` object. 
 
+
+```
 Usage:
-* `logtime.py <task_description>...`
-* `logtime.py -e`
-* `logtime.py -f`
-* `logtime.py`
+    logtime.py
+    logtime.py <task_description>...
+    logtime.py -e
+    logtime.py -f
 
 Options:
-* `-h --help`                     Show this screen.
-* `-e --end`                      End current task.
-* `-f --file`                     Open file with log.
+    -h --help                     Show this screen.
+    -e --end                      End current task.
+    -f --file                     Open file with log.
+```
+
+Items are stored in single plain text file that has simple format:
+
+```
+YYYY-MM-DD HH:MM
+<entry description>
+YYYY-MM-DD HH:MM
+```
+
+First timestamp before `<entry description>` is considered as entry start time and first after as end time.
 
 # red
 
-Log tasks as time entries in Redmine. Requires `python-redmine`.
+`red.py` takes entries logged in logtime and sends them to yours overlord redmine.
 
-* If task title contains `#\d+` it is used as issue id, otherwise you will be asked for one.
-* If task contains `@mnemonic` it will be used to retrieve activity id, otherwise default value from config will be used.
+Redmine requires two things to create time entry: issue id and activity id
+- you can add `#<issue_id>` to entry description otherwise you'll be asked for one
+- you can add `@<activity_mnemonic>` to entry description or default activity will be used
 
-Activities mnemonics are generated from activities descriptions provided in `config.py`.
+Activities can be configured in config.py, activity mnemonic is created from first letters of activity title.
+
+# lp
+
+`Lp` uses [selector](https://github.com/bevesce/selector) to display previous entries and lets search then and choose one to begin working on it once again.
+
+![](http://procrastinationlog.net/images/lp.png

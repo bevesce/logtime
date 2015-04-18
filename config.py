@@ -8,7 +8,7 @@ logtime_script_path = os.path.expanduser('~/Scripts/logtime/logtime.py')
 redmine_default_activity_id = 13  # implementacja
 redmine_url = 'https://codeflow.pl/redmine'
 redmine_username = 'pwilczynski'
-redmine_password = 'igyNjiezsQnr9cX'
+redmine_password = 'igyNjiezsQnr9cX'  # it's not my real password, don't worry
 
 redmine_activities = {
     'Analiza': 10,
