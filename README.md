@@ -2,7 +2,7 @@
 
 Little and quick utility to log what are you spending time on. Run the script with description of what you are doing to start logging and run without any arguments to show statistics.
 
-![logtime](http://procrastinationlog.net/images/logtime.png)
+![logtime](images/logtime.png)
 
 Entries that are prepended with @ are considered breaks and are not counted into goals. `Printer` that I'm using displays only todays entries and progress for current month, week and day but you can implement another one. Items from log are parsed to `Calendar` object. 
 
@@ -44,4 +44,4 @@ Activities can be configured in config.py, activity mnemonic is created from fir
 
 `Lp` uses [selector](https://github.com/bevesce/selector) to display previous entries and lets you search them and choose one to begin working on it once again.
 
-![](http://procrastinationlog.net/images/lp.png)
+![](images/lp.png)
