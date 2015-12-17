@@ -69,3 +69,4 @@ if __name__ == '__main__':
         if task.is_break:
             continue
         RedmineEntry(task.title, task.duration).push()
+        logtime.end_task()
