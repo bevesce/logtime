@@ -1,564 +1,240 @@
-# -*- coding: utf-8 -*-
-#!/usr/bin/env python2
-
-"""
-Log and show time spent on tasks.
-Using without argument will show logged tasks with time spent on them.
-Using with some text will start new task.
-
-Usage:
-    logtime.py <task_description>...
-    logtime.py -e
-    logtime.py -f
-    logtime.py -s
-    logtime.py -l
-    logtime.py -r
-    logtime.py -t <task_description>...
-    logtime.py -p <prefix>...
-    logtime.py
-
-Options:
-    -h --help                     Show this screen.
-    -e --end                      End current task.
-    -f --file                     Open file with log.
-    -s --script                   Open file with source code.
-    -l --loop                     Loooopy
-    -t --time                     Time me, 25 minutes for tasks, 5 minutes for breaks
-    -p --prefix                   Takes task prefix and show statistic about matching tasks
-    -r --recent                   Show most recent task
-"""
-
-from __future__ import unicode_literals
-
-from datetime import datetime, timedelta
 from collections import defaultdict
-import bisect
-import docopt
-import subprocess
-import config
-from config import logtime_path
-try:
-    import timer
-    import colors
-except:
-    pass
+from datetime import timedelta
+from datetime import datetime
+import re
 
+TIME_FORMAT = '%M'
 DATETIME_FORMAT = '%Y-%m-%d %H:%M'
-TIME_FORMAT = '%H:%M'
-COMMENT_INDICATOR = '%'
-BREAK_INDICATOR = '@'
-PROGESS_BAR_SIZE = 50
-
-ZERO_TIME = timedelta()
-
-try:
-    class Printer():
-        def today_summary(self, calendar):
-            today = None
-            days = list(calendar.iter_days())
-            goal = variables.goal('d')
-            if not days:
-                print('NOPE :(')
-                return
-            for day in days[:-1]:
-                self._progress_bar(
-                    day.duration, goal
-                )
-            today = days[-1]
-            self._progress_bar(
-                today.duration,
-                goal,
-                highlight=colors.on_blue
-            )
-            end_time = datetime.now() + (goal - today.duration)
-            can_end_today = end_time.strftime('%F') == datetime.now().strftime('%F')
-            if can_end_today:
-                print(end_time.strftime('%F %R'))
-            else:
-                print(':(')
-            print('')
-            self._summary_tasks(calendar)
-
-        def _progress_bar(self, duration, goal, highlight=colors.on_white):
-            if not goal:
-                return
-            progess_bar_size = PROGESS_BAR_SIZE - 12
-            done = int(duration.total_seconds() / (goal.total_seconds() + 0.) * progess_bar_size)
-            done = max(done, 0)
-            remaining = progess_bar_size - done
-            remaining = min(progess_bar_size, remaining)
-            remaining = max(remaining, 0)
-            print('{} {} {}{}'.format(
-                colors.gray(format_timedelta(duration)),
-                format_timedelta(goal - duration),
-                highlight(done * ' '),
-                colors.on_gray(' ' * remaining),
-            ))
-
-        def _how_much_left_if_i_leave_now(self, goal, days_left):
-            if days_left == 1:
-                return '*'
-            return format_timedelta(
-                goal / (days_left - 1)
-            )
-
-        def _summary_tasks(self, day):
-            for task in day.iter_tasks():
-                if task.is_current:
-                    self._print_current_task(task)
-                elif task.is_break:
-                    self._print_break(task)
-                else:
-                    self._print_task(task)
-
-        def _print_current_task(self, task):
-            self._print_task(task, colors.blue)
-
-        def _print_break(self, task):
-            self._print_task(task, colors.gray)
-
-        def _print_task(self, task, color=colors.defc):
-            left = '{} {}'.format(
-                format_timedelta(task.duration),
-                task.title
-            )
-            print('{}'.format(
-                color(left),
-            ))
-except:
-    pass
+COMMENT_PREFIX = '# '
+DESCRIPTION_SEPARATOR = ' - '
+REVERSE_ORDER_PREFIX = '-'
 
 
-def separate_timedelta(delta):
-    hours = delta.total_seconds() / 3600.
-    minutes = abs((hours - int(hours)) * 60)
-    return int(hours), int(minutes)
+class LogItem:
+    def __init__(self, start, end, tags):
+        self.start = start
+        self.end = end
+        self.tags = tags
 
+    def __str__(self):
+        return '{}\n{}\n{}'.format(
+            self.start.strftime(DATETIME_FORMAT),
+            ' - '.join(self.tags),
+            self.end.strftime(DATETIME_FORMAT),
+        )
 
-def format_timedelta(delta):
-    hours, minutes = separate_timedelta(delta)
-    return '{:02d}:{:02d}'.format(hours, minutes)
+    def __eq__(self, other):
+        return all([
+            self.start == other.start,
+            self.end == other.end,
+            self.tags == other.tags,
+            self.description == other.description
+        ])
 
-
-def format_timedelta_for_redmine(delta):
-    hours, minutes = separate_timedelta(delta)
-    minutes = '{:.3f}'.format(minutes / 60.)
-    return '{}.{}'.format(hours, minutes[2:])
-
-
-def calculate_day_goal(month, week, day):
-    switcher = variables.s
-    bigger = month if switcher == 'm' else week
-    seconds_left = (variables.goal(switcher) - bigger.duration + day.duration).total_seconds()
-    avg_day_left = timedelta(seconds=(seconds_left / variables.dl))
-    day_goal = variables.goal('d') or avg_day_left
-    return day_goal
-
-
-class VariablesHandler(object):
-    def __init__(self):
-        self.variables = {}
-        self.defaults = {
-            'm': 3 / 5 * 4 * 5 * 8,
-            'w': 3 * 8,
-            'd': 8,
-            'dl': 1,
-            's': 'w'
-        }
-
-    def set(self, text):
-        try:
-            key, value = text.split('=')
-        except:
-            return
-        key, value = key.strip(), value.strip()
-        self.variables[key] = self._parse_value(value)
-
-    def _parse_value(self, value):
-        try:
-            return eval(value)
-        except NameError:
-            return value
-
-    def __getattr__(self, k):
-        default = self.defaults.get(k)
-        return self.variables.get(k, default)
-
-    def goal(self, k):
-        v = getattr(self, k)
-        if isinstance(v, timedelta):
-            return v
-        try:
-            return timedelta(hours=v)
-        except TypeError:
-            return v
-
-variables = VariablesHandler()
-
-
-class Parser(object):
-    def __init__(self, text):
-        self.text = text.strip()
-
-    def parse(self):
-        for start, title, end in self._parse_to_raw():
-            yield LogItem(title, start=start, end=end)
-
-    def _parse_to_raw(self):
-        prev_date, prev_title = None, None
-        for date, title in self._parse_lines():
-            if date:
-                if prev_title:
-                    yield (prev_date, prev_title, date)
-                    prev_title = None
-                prev_date = date
-            elif title:
-                prev_title = title
-        if prev_title:
-            yield (prev_date, prev_title, None)
-
-    def _parse_lines(self):
-        lines = self.text.splitlines()
-        for line in lines:
-            if not line:
-                continue
-            if line.startswith(COMMENT_INDICATOR):
-                variables.set(line[len(COMMENT_INDICATOR):])
-                continue
-            yield self._parse_line(line)
-
-    def _parse_line(self, line):
-        try:
-            date = datetime.strptime(line, DATETIME_FORMAT)
-            title = None
-        except ValueError:
-            date = None
-            title = line
-        return date, title
-
-
-class LogItem(object):
-    DEFAULT_START_DATE = datetime(1900, 1, 1, 0, 0)
-
-    def __init__(self, title, start, end):
-        self.title = title
-        self.start = start or self.DEFAULT_START_DATE
-        self.end = end or datetime.now()
-        self.is_current = not end
-
-    @property
     def duration(self):
         return self.end - self.start
 
-    @property
-    def is_break(self):
-        return self.title.startswith(BREAK_INDICATOR)
-
-    @property
-    def year(self):
-        return self.start.year
-
-    @property
-    def month(self):
-        return (self.start.year, self.start.month)
-
-    @property
-    def week(self):
-        return (self.start.year, self.start.isocalendar()[1])
-
-    @property
-    def day(self):
-        return (self.start.year, self.start.month, self.start.day)
-
-    def __repr__(self):
-        return 'LogItem("{}", start={}, end={})'.format(
-            self.title, repr(self.start), repr(self.end)
-        )
+    def description(self):
+        return DESCRIPTION_SEPARATOR.join(self.tags)
 
 
-class CalendarKey(LogItem):
-    def __init__(self, start):
-        super(CalendarKey, self).__init__('', start=start, end=None)
+class Log:
+    def __init__(self, logitems):
+        if isinstance(logitems, str):
+            logitems = self._parse(logitems)
+        self._logitems = tuple(logitems)
 
     @staticmethod
-    def now():
-        return CalendarKey(datetime.now())
+    def _parse(text):
+        return LogItemsParser.parse_text(text)
+
+    def __str__(self):
+        return '\n'.join(str(i) for i in self)
+
+    def __eq__(self, other):
+        return set(self._logitems) == set(other._logitems)
+
+    def __len__(self):
+        return len(self._logitems)
+
+    def __getitem__(self, index):
+        return self._logitems[index]
+
+    def filter(self, f):
+        return Log(self._join(
+            i for i in self._split_by_minute() if f(i)
+        ))
+
+    @staticmethod
+    def _join(logitems):
+        joined = {}
+        changed = True
+        while changed:
+            joined = {}
+            changed = False
+            for item in logitems:
+                if item.start in joined and item.tags == joined[item.start].tags:
+                    item2 = joined.pop(item.start)
+                    newitem = Log._join_items(item, item2)
+                    joined[newitem.end] = newitem
+                    changed = True
+                else:
+                    joined[item.end] = item
+            logitems = joined.values()
+        return joined.values()
+
+    @staticmethod
+    def _can_join_items(item1, item2):
+        return all([
+            item1.end == item2.start or item2.end == item1.start,
+            item1.tags == item2.tags,
+        ])
+
+    @staticmethod
+    def _join_items(item1, item2):
+        return LogItem(
+            min(item1.start, item2.start),
+            max(item1.end, item2.end),
+            item1.tags
+        )
+
+    def _split_by_minute(self):
+        for i in self:
+            end = i.end
+            start = i.start
+            while start < end:
+                next_start = start + timedelta(minutes=1)
+                yield LogItem(start, next_start, i.tags)
+                start = next_start
+
+    def map(self, f):
+        return Log(f(i) for i in self)
+
+    def group(self, key):
+        result = defaultdict(list)
+        for i in self:
+            result[key(i)].append(i)
+        return GroupedLog({
+            k: Log(v) for k, v in result.items()
+        })
+
+    def sum(self):
+        return sum((i.duration() for i in self), timedelta())
+
+    def sorted(self, key, reverse=False):
+        return Log(sorted(
+            self._logitems, key=key, reverse=reverse
+        ))
 
 
-class SomeTime(object):
-    def __init__(self):
-        self.duration = timedelta()
-        self.break_duration = timedelta()
-        if self.subtime_class:
-            self.subtimes = defaultdict(self.subtime_class)
-        self.keys = []
+class GroupedLog:
+    def __init__(self, groups):
+        self._groups = groups
 
-    def add(self, logitem):
-        self._update_start(logitem)
-        self._add_duration(logitem)
-        key = self.subtime_key(logitem)
-        if key not in self.keys:
-            bisect.insort_left(self.keys, key)
-        self.subtimes[key].add(logitem)
+    def __eq__(self, other):
+        if set(self.groups()) != set(other.groups()):
+            return False
+        for group in self.groups():
+            if self._groups[group] != other._groups[group]:
+                return False
+        return True
 
-    def _update_start(self, logitem):
-        self.start = max(logitem.start, self.start) if hasattr(self, 'start') else logitem.start
+    def __str__(self):
+        return '\n'.join(
+            '# {}\n{}'.format(k, v)
+            for k, v in self._groups.items()
+        )
 
-    def _add_duration(self, logitem):
-        if logitem.is_break:
-            self.break_duration += logitem.duration
-        else:
-            self.duration += logitem.duration
+    def map(self, f):
+        return GroupedLog({
+            k: v.map(f) for k, v in self._groups.items()
+        })
 
-    def newest_subtime(self):
-        return self.subtimes[self.keys[-1]]
+    def filter(self, f):
+        return GroupedLog({
+            k: v.filter(f) for k, v in self._groups.items()
+        })
 
-    def get_day(self, some_datetime):
-        if not isinstance(some_datetime, LogItem):
-            some_datetime = LogItem('', some_datetime, some_datetime)
-        sub = self.subtimes.get(self.subtime_key(some_datetime), None)
-        if not sub:
-            return None
-        return sub.get_day(some_datetime)
-
-    def all_tasks(self):
-        for key in self.keys:
-            for task in self.subtimes[key].all_tasks():
-                yield task
-
-    def iter_days(self):
-        for k in self.keys:
-            for day in self.subtimes[k].iter_days():
-                yield day
-
-    def iter_tasks(self):
-        tasks = defaultdict(Task)
-        for k in self.keys:
-            for task in self.subtimes[k].iter_tasks():
-                t = tasks[task.title]
-                t.title = task.title
-                t.duration += task.duration
-                t.is_current = t.is_current or task.is_current
-        tasks = sorted(tasks.values(), key=lambda t: t.title)
-        for task in tasks:
-            yield task
+    def sum(self):
+        return CategorizedTime({
+            k: v.sum() for k, v in self._groups.items()
+        })
 
 
-class Task(SomeTime):
-    subtime_class = None
+class CategorizedTime:
+    def __init__(self, categories):
+        self._categories = categories
 
-    def __init__(self):
-        self.logitems = []
-        self.title = None
-        self.duration = timedelta()
-        self.is_current = False
+    def __eq__(self, other):
+        if set(self.categories()) != set(other.categories()):
+            return False
+        for category in self.categories():
+            if self._categories[category] != other._categories[category]:
+                return False
+        return True
 
-    def add(self, logitem):
-        self._update_start(logitem)
-        self.title = logitem.title
-        self.logitems.append(logitem)
-        self.duration += logitem.duration
-        self.is_current = self.is_current or logitem.is_current
+    def __str__(self):
+        return '\n'.join(
+            '{} = {}'.format(k, v) for k, v in self._categories.items()
+        )
 
-    @property
-    def is_break(self):
-        return self.title.startswith(BREAK_INDICATOR)
+    def __getitem__(self, category):
+        return self._categories[category]
 
-    def all_tasks(self):
-        return [self]
-
-    def iter_days(self):
-        raise TypeError("Task can't iterate days")
-
-    def iter_tasks(self):
-        yield self
+    def categories(self):
+        return self._categories.keys()
 
 
-class Day(SomeTime):
-    subtime_class = Task
-
-    def subtime_key(self, logitem):
-        return logitem.title
-
-    def iter_tasks(self):
-        for k in self.keys:
-            yield self.subtimes[k]
-
-    def get_day(self, some_datetime):
-        return self
-
-    def iter_days(self):
-        yield self
-
-
-class Week(SomeTime):
-    subtime_class = Day
-
-    def subtime_key(self, logitem):
-        return logitem.day
-
-    def newest_day(self):
-        return self.newest_subtime()
-
-    def days(self):
-        for st in self.subtimes.values():
-            yield st
-
-
-class Month(SomeTime):
-    subtime_class = Week
-
-    def subtime_key(self, logitem):
-        return logitem.week
-
-    def newest_week(self):
-        return self.newest_subtime()
-
-    def weeks(self):
-        for st in self.subtimes.values():
-            yield st
-
-    def days(self):
-        for w in self.weeks():
-            for d in w.days():
-                yield d
-
-
-class Year(SomeTime):
-    subtime_class = Month
-
-    def subtime_key(self, logitem):
-        return logitem.month
-
-    def newest_month(self):
-        return self.newest_subtime()
-
-
-class Calendar(SomeTime):
-    subtime_class = Year
+class LogItemsParser:
+    @classmethod
+    def parse_text(cls, text):
+        lines = text.splitlines()
+        return cls.parse_lines(lines)
 
     @classmethod
-    def from_text(cls, text):
-        return Calendar(Parser(text).parse())
-
-    @classmethod
-    def from_file(cls, path):
-        with open(logtime_path) as f:
-            return Calendar.from_text(f.read())
-
-    def __init__(self, logitems):
-        super(Calendar, self).__init__()
-        self.years = defaultdict(self.subtime_class)
-        for logitem in logitems:
-            self.add(logitem)
-        self.keys.sort()
-
-    def subtime_key(self, logitem):
-        return logitem.year
-
-    def newest_year(self):
-        return self.newest_subtime()
-
-
-def start_task(title):
-    if title.startswith(COMMENT_INDICATOR):
-        new_line = title
-    else:
-        new_line = make_timestamp() + '\n' + title
-    append_line(new_line)
-
-
-def end_task():
-    new_line = make_timestamp()
-    append_line(new_line)
-
-
-def make_timestamp():
-    return datetime.now().strftime(DATETIME_FORMAT)
-
-
-def append_line(line):
-    old = open(logtime_path).read()
-    if not old.endswith('\n'):
-        line = '\n' + line
-    open(logtime_path, 'a').write(line)
-
-
-def summarize():
-    Printer().today_summary(
-        Calendar.from_file(logtime_path)
-    )
-    print('_' * PROGESS_BAR_SIZE)
-    print(datetime.now().strftime('%F %R'))
-
-
-def summarize_tasks(prefix):
-    calendar = Calendar.from_file(logtime_path)
-    time_sum = timedelta(0)
-    for task in calendar.all_tasks():
-        if task.title.startswith(prefix):
-            time_sum += task.duration
-    goal = variables.goal(prefix)
-    if goal:
-        Printer()._progress_bar(time_sum, goal)
-    else:
-        print(format_timedelta(time_sum))
-
-
-def timeit(task):
-    if task.startswith(BREAK_INDICATOR):
-        timer.start(5, scale=5, additional_print=summarize)
-    else:
-        timer.start(25, scale=2, additional_print=summarize)
-
-
-def maybe_timeit(arguments, task):
-    if arguments['--time']:
-        try:
-            timeit(task)
-        except KeyboardInterrupt:
-            end_task()
-            summarize()
-            print('END')
-            import sys
-            sys.exit(0)
-
-
-if __name__ == '__main__':
-    arguments = docopt.docopt(__doc__)
-    if arguments['<task_description>']:
-        task = ' '.join(arguments['<task_description>'])
-        start_task(task)
-        maybe_timeit(arguments, task)
-    if arguments['--end']:
-        end_task()
-    if arguments['--file']:
-        subprocess.call(['subl', logtime_path])
-    if arguments['--script']:
-        subprocess.call(['subl', config.logtime_script_path])
-    if arguments['--loop']:
-        import time
-        while True:
-            print('\n' * 100)
-            summarize()
-            time.sleep(60)
-    if arguments['--prefix']:
-        prefix = ' '.join(arguments['<prefix>'])
-        summarize_tasks(prefix)
-        import sys
-        sys.exit(0)
-    if arguments['--recent']:
-        c = Calendar.from_file(logtime_path)
-        current = [t for t in c.all_tasks() if t.is_current]
-        current = current[0] if current else None
-        if current:
-            print(
-                '{} | {}'.format(
-                    current.title, format_timedelta(current.duration)
-                )
+    def parse_lines(cls, lines):
+        start, end, description = None, None, None
+        for line in lines:
+            if line.startswith(COMMENT_PREFIX):
+                continue
+            start, end, description = cls.advance_start_end_description(
+                line, start, end, description
             )
-        else:
-            print(u'?')
-        import sys
-        sys.exit(0)
-    summarize()
+            if start and end and description:
+                yield LogItem(start, end, description.split(DESCRIPTION_SEPARATOR))
+                start, end, description = end, None, None
+        if start and description:
+            yield LogItem(start, datetime.now(), description.split(DESCRIPTION_SEPARATOR))
+
+    @classmethod
+    def advance_start_end_description(cls, line, start, end, description):
+        maybe_date = cls.parse_date(line)
+        if maybe_date:
+            if start and description:
+                end = maybe_date
+            else:
+                start = maybe_date
+        elif line:
+            description = line
+        return start, end, description
+
+    @classmethod
+    def parse_date(cls, line):
+        try:
+            return datetime.strptime(line, DATETIME_FORMAT)
+        except ValueError:
+            return None
+
+
+class Variables:
+    def __init__(self, text):
+        self._variables = {}
+        p = re.compile(r'# (.*) = (.*)')
+        for k, v in p.findall(text):
+            self._variables[k] = v
+
+    def hours(self, *keys):
+        for key in keys:
+            if key in self._variables:
+                return timedelta(hours=int(self._variables[key]))
+        raise KeyError('none key works: {}'.format(keys))
