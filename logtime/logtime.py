@@ -139,10 +139,28 @@ class GroupedLog:
         return True
 
     def __str__(self):
+        return self.str()
+
+    def str(self, indent=0, skip=None):
+        def sum_sub(v):
+            if isinstance(v, Log):
+                return v.sum()
+            else:
+                return sum((sum_sub(vv) for vv in v.values()), timedelta())
+
+        def str_sub(v):
+            if isinstance(v, Log):
+                return ''
+            else:
+                if list(v.keys()) == [skip]:
+                    return ''
+                return '\n' + v.str(indent=indent + 1, skip=skip)
+
         return '\n'.join(
-            '# {}\n{}'.format(k, v)
-            for k, v in self._groups.items()
+            '{}{} = {}{}'.format('    ' * indent, k, sum_sub(self._groups[k]), str_sub(self._groups[k]))
+            for k in sorted(self._groups.keys())
         )
+
 
     def map(self, f):
         return GroupedLog({
@@ -164,29 +182,52 @@ class GroupedLog:
             k: v.group(key) for k, v in self._groups.items()
         })
 
+    def items(self):
+        return self._groups.items()
+
+    def values(self):
+        return self._groups.values()
+
+    def keys(self):
+        return self._groups.keys()
+
 
 class GroupedTime:
     def __init__(self, groups):
-        self._categories = groups
+        self._groups = groups
 
     def __eq__(self, other):
         if set(self.groups()) != set(other.groups()):
             return False
         for category in self.groups():
-            if self._categories[category] != other._categories[category]:
+            if self._groups[category] != other._groups[category]:
                 return False
         return True
 
     def __str__(self):
         return '\n'.join(
-            '{} = {}'.format(k, v) for k, v in self._categories.items()
+            '{} = {}'.format(k, v) for k, v in self._groups.items()
         )
 
     def __getitem__(self, category):
-        return self._categories[category]
+        return self._groups[category]
+
+    def sum(self):
+        def f(v):
+            if isinstance(v, GroupedTime):
+                return v.sum()
+            return v
+        return sum((f(v) for v in self.values()), timedelta())
+
 
     def groups(self):
-        return self._categories.keys()
+        return self._groups.keys()
+
+    def items(self):
+        return self._groups.items()
+
+    def values(self):
+        return self._groups.values()
 
 
 class LogItemsParser:
