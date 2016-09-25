@@ -1,11 +1,12 @@
 import unittest
 from datetime import datetime as dt
 from datetime import timedelta as td
-from logtime import Log
-from logtime import LogItem
+from logtime.logtime import Log
+from logtime.logtime import LogItem
+from logtime.query import parse
 
 
-class Test(unittest.TestCase):
+class SplitJoinLogItem(unittest.TestCase):
     def test_split(self):
         d1 = dt(2016, 1, 1, 0, 0)
         d2 = dt(2015, 2, 1, 0, 0)
@@ -83,6 +84,44 @@ class Test(unittest.TestCase):
             ])
         )
 
+
+class Query(unittest.TestCase):
+    def test_transform_datetime(self):
+        query = parse('start > 2016-09-10 14:00')
+        self.assertTrue(
+            query(LogItem(dt(2017, 1, 1), dt(2018, 1, 1), []))
+        )
+        self.assertFalse(
+            query(LogItem(dt(2014, 1, 1), dt(2015, 1, 1), []))
+        )
+
+    def test_transform_date(self):
+        query = parse('start > 2016-09-10')
+        self.assertTrue(
+            query(LogItem(dt(2017, 1, 1), dt(2018, 1, 1), []))
+        )
+        self.assertFalse(
+            query(LogItem(dt(2015, 1, 1), dt(2016, 1, 1), []))
+        )
+
+    def test_tags(self):
+        query = parse('"tag1" in tags')
+        self.assertTrue(
+            query(LogItem(dt(2017, 1, 1), dt(2018, 1, 1), ['tag1', 'tag2']))
+        )
+        self.assertFalse(
+            query(LogItem(dt(2015, 1, 1), dt(2016, 1, 1), ['tag3']))
+        )
+
+
+l = Log("""
+2016-09-25 14:50
+tag1 - tag2
+2016-09-25 14:55
+tag1 - tag3
+2016-09-25 14:58
+""").group('tags[0]').group('tags[1]').sum()
+print(l)
 
 def str_set(items):
     return set(str(i) for i in items)

@@ -3,6 +3,8 @@ from datetime import timedelta
 from datetime import datetime
 import re
 
+from . import query
+
 TIME_FORMAT = '%M'
 DATETIME_FORMAT = '%Y-%m-%d %H:%M'
 COMMENT_PREFIX = '# '
@@ -28,13 +30,13 @@ class LogItem:
             self.start == other.start,
             self.end == other.end,
             self.tags == other.tags,
-            self.description == other.description
+            self.get_description() == other.get_description()
         ])
 
-    def duration(self):
+    def get_duration(self):
         return self.end - self.start
 
-    def description(self):
+    def get_description(self):
         return DESCRIPTION_SEPARATOR.join(self.tags)
 
 
@@ -61,6 +63,8 @@ class Log:
         return self._logitems[index]
 
     def filter(self, f):
+        if isinstance(f, str):
+            f = query.parse(f)
         return Log(self._join(
             i for i in self._split_by_minute() if f(i)
         ))
@@ -84,13 +88,6 @@ class Log:
         return joined.values()
 
     @staticmethod
-    def _can_join_items(item1, item2):
-        return all([
-            item1.end == item2.start or item2.end == item1.start,
-            item1.tags == item2.tags,
-        ])
-
-    @staticmethod
     def _join_items(item1, item2):
         return LogItem(
             min(item1.start, item2.start),
@@ -111,6 +108,8 @@ class Log:
         return Log(f(i) for i in self)
 
     def group(self, key):
+        if isinstance(key, str):
+            key = query.parse(key)
         result = defaultdict(list)
         for i in self:
             result[key(i)].append(i)
@@ -119,7 +118,7 @@ class Log:
         })
 
     def sum(self):
-        return sum((i.duration() for i in self), timedelta())
+        return sum((i.get_duration() for i in self), timedelta())
 
     def sorted(self, key, reverse=False):
         return Log(sorted(
@@ -156,19 +155,24 @@ class GroupedLog:
         })
 
     def sum(self):
-        return CategorizedTime({
+        return GroupedTime({
             k: v.sum() for k, v in self._groups.items()
         })
 
+    def group(self, key):
+        return GroupedLog({
+            k: v.group(key) for k, v in self._groups.items()
+        })
 
-class CategorizedTime:
-    def __init__(self, categories):
-        self._categories = categories
+
+class GroupedTime:
+    def __init__(self, groups):
+        self._categories = groups
 
     def __eq__(self, other):
-        if set(self.categories()) != set(other.categories()):
+        if set(self.groups()) != set(other.groups()):
             return False
-        for category in self.categories():
+        for category in self.groups():
             if self._categories[category] != other._categories[category]:
                 return False
         return True
@@ -181,7 +185,7 @@ class CategorizedTime:
     def __getitem__(self, category):
         return self._categories[category]
 
-    def categories(self):
+    def groups(self):
         return self._categories.keys()
 
 

@@ -1,1 +1,0 @@
-from .logtime import Log
