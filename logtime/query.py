@@ -5,6 +5,9 @@ from datetime import datetime
 
 
 def parse(query_string):
+    if not query_string:
+        return lambda i: True
+
     query_string = transform_datetimes(query_string)
 
     def query(logitem):
