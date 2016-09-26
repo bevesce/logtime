@@ -9,13 +9,16 @@ left: {left}
 goal: {goal}"""
 
 
-def print_progress(logitems, goal, width=50):
-    done = logitems.sum()
+def print_progress(done, goal, width=50):
+    try:
+        done = done.sum()
+    except AttributeError:
+        pass
     print(PROGRESS_TEMPLATE.format(
         left=colors.blue(format_timedelta(goal - done)),
         done=colors.green(format_timedelta(done)),
         goal=colors.gray(format_timedelta(goal)),
-        bar=progress_bar(done.seconds / goal.seconds, width)
+        bar=progress_bar(done.total_seconds() / goal.total_seconds(), width)
     ))
 
 
