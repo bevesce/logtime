@@ -35,7 +35,7 @@ def print_timeline(logitems, start, end, interval=timedelta(minutes=15)):
     while current < end:
         def f(logitem):
             return logitem.start <= current and logitem.start >= current - interval
-        print(colors.blue(current), ', '.join(l.get_description() for l in logitems.filter(f)))
+        print(colors.blue(current.strftime('%F %R')), ', '.join(l.get_description() for l in logitems.filter(f)))
         current += interval
 
 
