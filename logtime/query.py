@@ -190,6 +190,16 @@ class Slice(Query):
             )[self.start:self.stop]
         return log[self.start:self.stop]
 
+    def matches(self, logitem):
+        left_side = True
+        if self.left:
+            left_side = self.left.matches(logitem)
+        if self.start and logitem.end < self.start:
+            return False
+        if self.stop and logitem.start > self.stop:
+            return False
+        return left_side
+
 
 class BooleanExpression(Query):
     def __init__(self, left, operator, right):
