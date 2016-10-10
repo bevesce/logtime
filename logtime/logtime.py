@@ -3,12 +3,11 @@ from datetime import timedelta
 from datetime import datetime
 import re
 
-from . import query
-
 TIME_FORMAT = '%M'
 DATETIME_FORMAT = '%Y-%m-%d %H:%M'
 COMMENT_PREFIX = '# '
-DESCRIPTION_SEPARATOR = ' - '
+DESCRIPTION_SEPARATOR = '/'
+WHITESPACED_DESCRIPTION_SEPARATOR = ' ' + DESCRIPTION_SEPARATOR + ' '
 REVERSE_ORDER_PREFIX = '-'
 
 
@@ -16,13 +15,18 @@ class LogItem:
     def __init__(self, start, end, tags):
         self.start = start
         self.end = end
-        self.tags = tags
+        self.tags = tuple(t.strip() for t in tags)
 
     def __str__(self):
         return '{}\n{}\n{}'.format(
             self.start.strftime(DATETIME_FORMAT),
-            ' - '.join(self.tags),
+            WHITESPACED_DESCRIPTION_SEPARATOR.join(self.tags),
             self.end.strftime(DATETIME_FORMAT),
+        )
+
+    def __repr__(self):
+        return 'LogItem({}, {}, {})'.format(
+            self.start, self.end, self.tags
         )
 
     def __eq__(self, other):
@@ -37,14 +41,28 @@ class LogItem:
         return self.end - self.start
 
     def get_description(self):
-        return DESCRIPTION_SEPARATOR.join(self.tags)
+        return WHITESPACED_DESCRIPTION_SEPARATOR.join(self.tags)
+
+    def cut_to_dates(self, start, stop):
+        if stop and stop < self.start:
+            return None
+        elif start and start > self.end:
+            return None
+        return LogItem(
+            max(start, self.start) if start else self.start,
+            min(stop, self.end) if stop else self.end,
+            self.tags
+        )
 
 
 class Log:
     def __init__(self, logitems):
         if isinstance(logitems, str):
             logitems = self._parse(logitems)
-        self._logitems = tuple(logitems)
+        try:
+            self._logitems = tuple(logitems)
+        except TypeError as e:
+            self._logitems = (logitems, )
 
     @staticmethod
     def _parse(text):
@@ -59,57 +77,42 @@ class Log:
     def __len__(self):
         return len(self._logitems)
 
-    def __getitem__(self, index):
-        return self._logitems[index]
+    def __iter__(self):
+        for logitem in self._logitems:
+            yield logitem
+
+    def __getitem__(self, slice):
+        return Log(self.yield_cut_to_dates(slice.start, slice.stop))
 
     def filter(self, f):
         if isinstance(f, str):
-            f = query.parse(f)
-        return Log(self._join(
-            i for i in self._split_by_minute() if f(i)
-        ))
+            from . import query
+            return query.parse(f).filter(self)
+        return Log(l for l in self._logitems if l)
 
-    @staticmethod
-    def _join(logitems):
-        joined = {}
-        changed = True
-        while changed:
-            joined = {}
-            changed = False
-            for item in logitems:
-                if item.start in joined and item.tags == joined[item.start].tags:
-                    item2 = joined.pop(item.start)
-                    newitem = Log._join_items(item, item2)
-                    joined[newitem.end] = newitem
-                    changed = True
-                else:
-                    joined[item.end] = item
-            logitems = joined.values()
-        return joined.values()
-
-    @staticmethod
-    def _join_items(item1, item2):
-        return LogItem(
-            min(item1.start, item2.start),
-            max(item1.end, item2.end),
-            item1.tags
-        )
-
-    def _split_by_minute(self):
-        for i in self:
-            end = i.end
-            start = i.start
-            while start < end:
-                next_start = start + timedelta(minutes=1)
-                yield LogItem(start, next_start, i.tags)
-                start = next_start
+    def yield_cut_to_dates(self, start, stop):
+        for logitem in self._logitems:
+            cut = logitem.cut_to_dates(start, stop)
+            if cut:
+                yield cut
 
     def map(self, f):
         return Log(f(i) for i in self)
 
     def group(self, key):
-        if isinstance(key, str):
-            key = query.parse(key)
+        key = {
+            'year': lambda i: i.start.strftime('%Y'),
+            'month': lambda i: i.start.strftime('%m'),
+            'day': lambda i: i.start.strftime('%d'),
+            'date': lambda i: i.start.strftime('%F'),
+            'year-month': lambda i: i.start.strftime('%Y-%m'),
+            'week': lambda i: i.start.strftime('%W'),
+            'year-week': lambda i: i.start.strftime('%Y-%W'),
+        }.get(key, key)
+        if isinstance(key, int):
+            index = key
+            def key(o):
+                return o.tags[index]
         result = defaultdict(list)
         for i in self:
             result[key(i)].append(i)
@@ -124,6 +127,13 @@ class Log:
         return Log(sorted(
             self._logitems, key=key, reverse=reverse
         ))
+
+
+def get_from_list(l, index, default=None):
+    try:
+        l[index]
+    except:
+        return default
 
 
 class GroupedLog:
@@ -219,7 +229,6 @@ class GroupedTime:
             return v
         return sum((f(v) for v in self.values()), timedelta())
 
-
     def groups(self):
         return self._groups.keys()
 
@@ -246,7 +255,9 @@ class LogItemsParser:
                 line, start, end, description
             )
             if start and end and description:
-                yield LogItem(start, end, description.split(DESCRIPTION_SEPARATOR))
+                yield LogItem(
+                    start, end, description.split(DESCRIPTION_SEPARATOR)
+                )
                 start, end, description = end, None, None
         if start and description:
             yield LogItem(start, datetime.now(), description.split(DESCRIPTION_SEPARATOR))

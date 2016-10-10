@@ -8,11 +8,11 @@
 # comment
 2016-09-26 14:00
 # ↑ start time
-programming - logtime - readme  
+programming / logtime / readme  
 # ↑ tag 1     ↑ tag 2   ↑ tag 3
 2016-09-26 15:00  
-# ↑ end time of "programming - logtime - readme" and at he same time start time of "programming - finanse"
-programming - finanse
+# ↑ end time of "programming / logtime / readme" and at he same time start time of "programming / finanse"
+programming / finanse
 # ↑ tag 1     ↑ tag 2
 2016-09-26 16:00  
 # ↑ end time of "programming - finanse"
@@ -24,43 +24,46 @@ This file format is designed to allow to start and end tracking task by simply a
 from logtime import Log
 
 log = Log("""2016-09-26 14:00
-tv - steven universe
+tv / steven universe
 2016-09-26 15:00
-eating - spiders
+eating / spiders
 2016-09-26 15:15
-programming - logtime - readme
+programming / logtime / readme
 2016-09-26 17:45
-programming - finanse""")
+programming / finanse
+""")
 ```
 
-`Log` can be filtered, minute by minute:
+`Log` can be filtered, using simple query language:
 
 ```
->>> print(log.filter('start > 2016-09-26 15:30'))
-2016-09-26 15:31
-programming - logtime - readme
-2016-09-26 17:45
-2016-09-26 17:45
-programming - finanse
-2016-09-26 18:15
+>>> print('programming or tv[2016-09-26 14:30;2016-09-26 15:30]')
+2016-09-26 14:30
+tv / steven universe
+2016-09-26 15:00
+2016-09-26 15:15
+programming / logtime / readme
+2016-09-26 15:30
 ```
 
-It can be grouped:
+Query language uses boolean operators and parentheses to match tags and slices to slice time.
+
+Log can be grouped:
 
 ```
->>> print(log.group('tags[0]'))
+>>> print(log.group(0))
 eating = 0:15:00
-programming = 3:00:00
+programming = 3:45:00
 tv = 1:00:00
 ```
 
-As an argument to `.filter` and `.group` you can either pass a function that will receive `LogItem`s or a string. When you pass the string it will be evaluated using `eval` with `LogItem`s attributes as global variables. 
+As an argument to `.filter` and `.group` you can either pass a function that will receive `LogItem`s or a string.
 
 `Log` can also be summed:
 
 ```
 >>> print(log.sum())
-4:15:00
+5:00:00
 ```
 
 ## Report
