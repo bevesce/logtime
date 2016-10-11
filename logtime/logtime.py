@@ -128,6 +128,12 @@ class Log:
             self._logitems, key=key, reverse=reverse
         ))
 
+    def get_start(self):
+        return min(l.start for l in self)
+
+    def get_end(self):
+        return max(l.end for l in self)
+
 
 def get_from_list(l, index, default=None):
     try:
@@ -151,7 +157,7 @@ class GroupedLog:
     def __str__(self):
         return self.str()
 
-    def str(self, indent=0, skip=None):
+    def str(self, indent=0, skip=None, format_timedelta=None):
         def sum_sub(v):
             if isinstance(v, Log):
                 return v.sum()
@@ -164,10 +170,13 @@ class GroupedLog:
             else:
                 if list(v.keys()) == [skip]:
                     return ''
-                return '\n' + v.str(indent=indent + 1, skip=skip)
-
+                return '\n' + v.str(indent=indent + 1, skip=skip, format_timedelta=format_timedelta)
+        def f(s):
+            if format_timedelta:
+                return format_timedelta(s)
+            return s
         return '\n'.join(
-            '{}{} = {}{}'.format('    ' * indent, k, sum_sub(self._groups[k]), str_sub(self._groups[k]))
+            '{}{} = {}{}'.format('    ' * indent, k, f(sum_sub(self._groups[k])), str_sub(self._groups[k]))
             for k in sorted(self._groups.keys())
         )
 

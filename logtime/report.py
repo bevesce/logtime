@@ -30,12 +30,14 @@ def progress_bar(fill_ratio, width=50):
     return colors.on_green(' ' * fill_size) + colors.on_blue(' ' * rest_size)
 
 
-def print_timeline(logitems, start, end, interval=timedelta(minutes=15)):
+def print_timeline(log, interval=timedelta(minutes=15)):
+    start, end = log.get_start(), log.get_end()
     current = start
     while current < end:
-        def f(logitem):
-            return logitem.start <= current and logitem.start >= current - interval
-        print(colors.blue(current.strftime('%F %R')), ', '.join(l.get_description() for l in logitems.filter(f)))
+        start_str = current.strftime('%F %R')
+        end_str = (current + interval).strftime('%F %R')
+        current_log = log.filter('[{};{}]'.format(start_str, end_str))
+        print(colors.blue(start_str), ', '.join(l.get_description() for l in current_log))
         current += interval
 
 
@@ -50,7 +52,7 @@ def print_breakdown(logitems):
 
     for i in range(0, 4):
         logitems = logitems.group(by_tag(i))
-    print(logitems.str(skip='_'))
+    print(logitems.str(skip='_', format_timedelta=format_timedelta))
 
 
 def format_timedelta(delta):
