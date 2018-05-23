@@ -14,7 +14,8 @@ REVERSE_ORDER_PREFIX = '-'
 class LogItem:
     def __init__(self, start, end, tags):
         self.start = start
-        self.end = end
+        self.end = end or datetime.now()
+        self.ended = bool(end)
         self.tags = tuple(t.strip() for t in tags)
 
     def __str__(self):
@@ -269,7 +270,7 @@ class LogItemsParser:
                 )
                 start, end, description = end, None, None
         if start and description:
-            yield LogItem(start, datetime.now(), description.split(DESCRIPTION_SEPARATOR))
+            yield LogItem(start, None, description.split(DESCRIPTION_SEPARATOR))
 
     @classmethod
     def advance_start_end_description(cls, line, start, end, description):
