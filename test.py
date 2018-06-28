@@ -67,29 +67,117 @@ class CutDate(unittest.TestCase):
             )
         )
 
+    def test_slicing_with_start(self):
+        log = Log("""
+2018-06-28 09:00
+test
+2018-06-28 10:00
+test2
+2018-06-29 10:00
+""")
+        output = str(log['2018-06-28':])
+        self.assertEqual(output, """2018-06-28 09:00
+test
+2018-06-28 10:00
+test2
+2018-06-29 10:00""")
 
-log = Log("""2016-09-26 14:00
-tv / steven universe
-2016-09-26 15:00
-eating / spiders
-2016-09-26 15:15
-programming / logtime / readme
-2016-09-26 17:45
-programming / finanse
-2016-09-26 19:00""")
+    def test_slicing_with_end(self):
+        log = Log("""
+2018-06-28 09:00
+test
+2018-06-28 10:00
+test2
+2018-06-29 10:00
+""")
+        output = str(log[:'2018-06-29'])
+        self.assertEqual(output, """2018-06-28 09:00
+test
+2018-06-28 10:00
+test2
+2018-06-29 00:00""")
 
-print('\n\n')
+    def test_slicing_with_start_and_end(self):
+        log = Log("""
+2018-06-28 09:00
+test
+2018-06-28 10:00
+test2
+2018-06-29 10:00
+""")
+        output = str(log['2018-06-28 12:00':'2018-06-29'])
+        self.assertEqual(output, """2018-06-28 12:00
+test2
+2018-06-29 00:00""")
 
-print(log.filter('[2016-09-26 15:30;]'))
-print('\n\n')
-print(print(log.group(0)))
-print('\n\n')
+    def test_slicing_with_start_end_and_step(self):
+        log = Log("""
+2018-06-27 09:00
+test0
+2018-06-28 09:00
+test1
+2018-06-28 10:00
+test2
+2018-06-29 10:00
+""")
+        output = log['2018-06-27':'2018-06-29':td(hours=24)]
+        self.assertEqual(str(output[0]), """2018-06-27 09:00
+test0
+2018-06-28 00:00""")
+        self.assertEqual(str(output[1]), """2018-06-28 00:00
+test0
+2018-06-28 09:00
+test1
+2018-06-28 10:00
+test2
+2018-06-29 00:00""")
 
-print(log.sum())
-print('\n\n')
+    def test_slicing_with_start_and_step(self):
+        log = Log("""
+2018-06-27 09:00
+test0
+2018-06-28 09:00
+test1
+2018-06-28 10:00
+test2
+2018-06-29 10:00
+""")
+        output = log['2018-06-27'::td(hours=24)]
+        self.assertEqual(str(output[0]), """2018-06-27 09:00
+test0
+2018-06-28 00:00""")
+        self.assertEqual(str(output[1]), """2018-06-28 00:00
+test0
+2018-06-28 09:00
+test1
+2018-06-28 10:00
+test2
+2018-06-29 00:00""")
+        self.assertEqual(str(output[2]), """2018-06-29 00:00
+test2
+2018-06-29 10:00""")
 
-print(log.filter('programming or tv[2016-09-26 14:30;2016-09-26 15:30]'))
+    def test_slicing_with_step_function(self):
+        log = Log("""
+2018-01-27 09:00
+test
+2018-03-29 10:00
+""")
+        output = log[::lambda start: next_month(start)]
+        self.assertEqual(str(output[0]), """2018-01-27 09:00
+test
+2018-02-01 00:00""")
+        self.assertEqual(str(output[1]), """2018-02-01 00:00
+test
+2018-03-01 00:00""")
+        self.assertEqual(str(output[2]), """2018-03-01 00:00
+test
+2018-03-29 10:00""")
 
+
+
+def next_month(start):
+    return (start + td(days=32)).replace(day=1, hour=0, minute=0, second=0)
 
 if __name__ == '__main__':
     unittest.main()

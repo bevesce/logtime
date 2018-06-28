@@ -4,6 +4,10 @@ import calendar
 
 
 def parse_date(text='', now=None):
+    if isinstance(text, datetime):
+        return text
+    if text == None:
+        return text
     return Parser(now).parse(text)
 
 

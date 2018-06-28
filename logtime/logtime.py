@@ -3,6 +3,8 @@ from datetime import timedelta
 from datetime import datetime
 import re
 
+from .parse_date import parse_date
+
 TIME_FORMAT = '%M'
 DATETIME_FORMAT = '%Y-%m-%d %H:%M'
 COMMENT_PREFIX = '# '
@@ -11,19 +13,27 @@ WHITESPACED_DESCRIPTION_SEPARATOR = ' ' + DESCRIPTION_SEPARATOR + ' '
 REVERSE_ORDER_PREFIX = '-'
 
 
+class LogtimeError(Exception):
+    pass
+
+
 class LogItem:
     def __init__(self, start, end, tags):
         self.start = start
         self.end = end or datetime.now()
         self.ended = bool(end)
         self.tags = tuple(t.strip() for t in tags)
+        if self.end < self.start:
+            raise LogtimeError("Wrong logitem, end datetime can't be smaller than start:\n{}".format(self))
 
-    def __str__(self):
-        return '{}\n{}\n{}'.format(
+    def __str__(self, include_end=True):
+        text = '{}\n{}'.format(
             self.start.strftime(DATETIME_FORMAT),
             WHITESPACED_DESCRIPTION_SEPARATOR.join(self.tags),
-            self.end.strftime(DATETIME_FORMAT),
         )
+        if include_end:
+            text += '\n{}'.format(self.end.strftime(DATETIME_FORMAT))
+        return text
 
     def __repr__(self):
         return 'LogItem({}, {}, {})'.format(
@@ -70,7 +80,10 @@ class Log:
         return LogItemsParser.parse_text(text)
 
     def __str__(self):
-        return '\n'.join(str(i) for i in self)
+        text = '\n'.join(i.__str__(include_end=False) for i in self)
+        if self and self._logitems[-1].ended:
+            text += '\n{}'.format(self.get_end().strftime(DATETIME_FORMAT))
+        return text
 
     def __eq__(self, other):
         return set(self._logitems) == set(other._logitems)
@@ -82,14 +95,30 @@ class Log:
         for logitem in self._logitems:
             yield logitem
 
-    def __getitem__(self, slice):
-        return Log(self.yield_cut_to_dates(slice.start, slice.stop))
+    def __getitem__(self, datetime_slice):
+        if not isinstance(datetime_slice, slice):
+            raise LogtimeError('You can subscribe Log only by slice. {}'.format(datetime_slice))
+        result = []
+        start = parse_date(datetime_slice.start) or self.get_start()
+        stop = parse_date(datetime_slice.stop) or self.get_end()
+        step = datetime_slice.step
+        if step:
+            while start < stop:
+                next_start = start + step if isinstance(step, timedelta) else step(start)
+                result.append(Log(self.yield_cut_to_dates(start, next_start)))
+                start = next_start
+        else:
+            return Log(self.yield_cut_to_dates(start, stop))
+        return tuple(result)
+
+    def __truediv__(self, f):
+        return self.filter(f)
 
     def filter(self, f):
         if isinstance(f, str):
             from . import query
             return query.parse(f).filter(self)
-        return Log(l for l in self._logitems if l)
+        return Log(l for l in self._logitems if f(l))
 
     def yield_cut_to_dates(self, start, stop):
         for logitem in self._logitems:
@@ -100,29 +129,14 @@ class Log:
     def map(self, f):
         return Log(f(i) for i in self)
 
-    def group(self, key):
-        key = {
-            'year': lambda i: i.start.strftime('%Y'),
-            'month': lambda i: i.start.strftime('%m'),
-            'day': lambda i: i.start.strftime('%d'),
-            'date': lambda i: i.start.strftime('%F'),
-            'year-month': lambda i: i.start.strftime('%Y-%m'),
-            'week': lambda i: i.start.strftime('%W'),
-            'year-week': lambda i: i.start.strftime('%Y-%W'),
-        }.get(key, key)
-        if isinstance(key, int):
-            index = key
-            def key(o):
-                return o.tags[index]
-        result = defaultdict(list)
-        for i in self:
-            result[key(i)].append(i)
-        return GroupedLog({
-            k: Log(v) for k, v in result.items()
-        })
-
     def sum(self):
         return sum((i.get_duration() for i in self), timedelta())
+
+    def total_seconds(self):
+        return self.sum().total_seconds()
+
+    def total_hours(self):
+        return self.total_seconds() / 3600
 
     def sorted(self, key, reverse=False):
         return Log(sorted(
@@ -130,123 +144,14 @@ class Log:
         ))
 
     def get_start(self):
+        if (len(self) == 0):
+            return datetime.now()
         return min(l.start for l in self)
 
     def get_end(self):
+        if (len(self) == 0):
+            return datetime.now()
         return max(l.end for l in self)
-
-
-def get_from_list(l, index, default=None):
-    try:
-        l[index]
-    except:
-        return default
-
-
-class GroupedLog:
-    def __init__(self, groups):
-        self._groups = groups
-
-    def __eq__(self, other):
-        if set(self.groups()) != set(other.groups()):
-            return False
-        for group in self.groups():
-            if self._groups[group] != other._groups[group]:
-                return False
-        return True
-
-    def __str__(self):
-        return self.str()
-
-    def str(self, indent=0, skip=None, format_timedelta=None):
-        def sum_sub(v):
-            if isinstance(v, Log):
-                return v.sum()
-            else:
-                return sum((sum_sub(vv) for vv in v.values()), timedelta())
-
-        def str_sub(v):
-            if isinstance(v, Log):
-                return ''
-            else:
-                if list(v.keys()) == [skip]:
-                    return ''
-                return '\n' + v.str(indent=indent + 1, skip=skip, format_timedelta=format_timedelta)
-        def f(s):
-            if format_timedelta:
-                return format_timedelta(s)
-            return s
-        return '\n'.join(
-            '{}{} = {}{}'.format('    ' * indent, k, f(sum_sub(self._groups[k])), str_sub(self._groups[k]))
-            for k in sorted(self._groups.keys())
-        )
-
-
-    def map(self, f):
-        return GroupedLog({
-            k: v.map(f) for k, v in self._groups.items()
-        })
-
-    def filter(self, f):
-        return GroupedLog({
-            k: v.filter(f) for k, v in self._groups.items()
-        })
-
-    def sum(self):
-        return GroupedTime({
-            k: v.sum() for k, v in self._groups.items()
-        })
-
-    def group(self, key):
-        return GroupedLog({
-            k: v.group(key) for k, v in self._groups.items()
-        })
-
-    def items(self):
-        return self._groups.items()
-
-    def values(self):
-        return self._groups.values()
-
-    def keys(self):
-        return self._groups.keys()
-
-
-class GroupedTime:
-    def __init__(self, groups):
-        self._groups = groups
-
-    def __eq__(self, other):
-        if set(self.groups()) != set(other.groups()):
-            return False
-        for category in self.groups():
-            if self._groups[category] != other._groups[category]:
-                return False
-        return True
-
-    def __str__(self):
-        return '\n'.join(
-            '{} = {}'.format(k, v) for k, v in self._groups.items()
-        )
-
-    def __getitem__(self, category):
-        return self._groups[category]
-
-    def sum(self):
-        def f(v):
-            if isinstance(v, GroupedTime):
-                return v.sum()
-            return v
-        return sum((f(v) for v in self.values()), timedelta())
-
-    def groups(self):
-        return self._groups.keys()
-
-    def items(self):
-        return self._groups.items()
-
-    def values(self):
-        return self._groups.values()
 
 
 class LogItemsParser:
@@ -290,17 +195,3 @@ class LogItemsParser:
             return datetime.strptime(line, DATETIME_FORMAT)
         except ValueError:
             return None
-
-
-class Variables:
-    def __init__(self, text):
-        self._variables = {}
-        p = re.compile(r'# (.*) = (.*)')
-        for k, v in p.findall(text):
-            self._variables[k] = v
-
-    def hours(self, *keys):
-        for key in keys:
-            if key in self._variables:
-                return timedelta(hours=int(self._variables[key]))
-        raise KeyError('none key works: {}'.format(keys))
