@@ -176,6 +176,21 @@ class TestQuery(unittest.TestCase):
             ((2016, 10, 5), (2016, 10, 5), 'r'),
         ])
 
+    def test_slice2(self):
+        self.quering([
+            ((2016, 9, 1), (2016, 9, 10), 'r'),
+        ]).by('[2016-09-04;2016-09-6]').gives([
+            ((2016, 9, 4), (2016, 9, 6), 'r'),
+        ])
+
+    def test_slice(self):
+        log = Log("""2018-05-30 16:50
+living / holidays / barcelona
+2018-06-04 11:20""")
+        output = log.filter('living [2018-05-31;2018-06-01]')
+        self.assertEqual(str(output), """2018-05-31 00:00
+living / holidays / barcelona
+2018-06-01 00:00""")
 
 if __name__ == '__main__':
     unittest.main()
