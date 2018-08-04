@@ -77,7 +77,7 @@ class Log:
 
     @staticmethod
     def _parse(text):
-        return LogItemsParser.parse_text(text)
+        return LogItemsParser().parse_text(text)
 
     def __str__(self):
         text = '\n'.join(i.__str__(include_end=False) for i in self)
@@ -155,31 +155,31 @@ class Log:
 
 
 class LogItemsParser:
-    @classmethod
-    def parse_text(cls, text):
-        lines = text.splitlines()
-        return cls.parse_lines(lines)
+    def __init__(self, LogItem=LogItem):
+        self.LogItem = LogItem
 
-    @classmethod
-    def parse_lines(cls, lines):
+    def parse_text(self, text):
+        lines = text.splitlines()
+        return self.parse_lines(lines)
+
+    def parse_lines(self, lines):
         start, end, description = None, None, None
         for line in lines:
             if line.startswith(COMMENT_PREFIX):
                 continue
-            start, end, description = cls.advance_start_end_description(
+            start, end, description = self.advance_start_end_description(
                 line, start, end, description
             )
             if start and end and description:
-                yield LogItem(
+                yield self.LogItem(
                     start, end, description.split(DESCRIPTION_SEPARATOR)
                 )
                 start, end, description = end, None, None
         if start and description:
-            yield LogItem(start, None, description.split(DESCRIPTION_SEPARATOR))
+            yield self.LogItem(start, None, description.split(DESCRIPTION_SEPARATOR))
 
-    @classmethod
-    def advance_start_end_description(cls, line, start, end, description):
-        maybe_date = cls.parse_date(line)
+    def advance_start_end_description(self, line, start, end, description):
+        maybe_date = self.parse_date(line)
         if maybe_date:
             if start and description:
                 end = maybe_date
@@ -189,8 +189,7 @@ class LogItemsParser:
             description = line
         return start, end, description
 
-    @classmethod
-    def parse_date(cls, line):
+    def parse_date(self, line):
         try:
             return datetime.strptime(line, DATETIME_FORMAT)
         except ValueError:

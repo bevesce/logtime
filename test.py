@@ -4,6 +4,7 @@ from datetime import timedelta as td
 from logtime.logtime import Log
 from logtime.logtime import LogItem
 from logtime.query import parse
+from logtime.utils import fix
 
 
 class CutDate(unittest.TestCase):
@@ -178,6 +179,64 @@ test
 
 def next_month(start):
     return (start + td(days=32)).replace(day=1, hour=0, minute=0, second=0)
+
+
+
+class ParseAndSort(unittest.TestCase):
+    def test01(self):
+        fixed_log = fix("""
+2018-05-20 09:00
+foo
+2018-05-20 20:00
+2018-06-28 20:00
+test
+2018-06-28 10:00
+test2
+2018-06-29 11:00
+2018-04-20 09:00
+bar
+2018-04-20 20:00
+""")
+        self.assertEqual(fixed_log, """2018-04-20 09:00
+bar
+2018-04-20 20:00
+2018-05-20 09:00
+foo
+2018-05-20 20:00
+2018-06-28 10:00
+test2
+2018-06-28 20:00
+test
+2018-06-29 11:00""")
+
+    def test02(self):
+        fixed_log = fix("""
+2018-05-20 09:00
+foo
+2018-05-20 20:00
+2018-06-28 20:00
+test
+2018-06-28 10:00
+test2
+2018-06-29 11:00
+2018-04-20 09:00
+bar
+2018-04-20 20:00
+2019-01-01 01:00
+last
+""")
+        self.assertEqual(fixed_log, """2018-04-20 09:00
+bar
+2018-04-20 20:00
+2018-05-20 09:00
+foo
+2018-05-20 20:00
+2018-06-28 10:00
+test2
+2018-06-28 20:00
+test
+2019-01-01 01:00
+last""")
 
 if __name__ == '__main__':
     unittest.main()
