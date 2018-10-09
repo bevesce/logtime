@@ -22,7 +22,7 @@ class LogItem:
         self.start = start
         self.end = end or datetime.now()
         self.ended = bool(end)
-        self.tags = tuple(t.strip() for t in tags)
+        self.tags = tags
         if self.end < self.start:
             raise LogtimeError("Wrong logitem, end datetime can't be smaller than start:\n{}".format(self))
 
@@ -41,12 +41,7 @@ class LogItem:
         )
 
     def __eq__(self, other):
-        return all([
-            self.start == other.start,
-            self.end == other.end,
-            self.tags == other.tags,
-            self.get_description() == other.get_description()
-        ])
+        return str(self) == str(other)
 
     def get_duration(self):
         return self.end - self.start
@@ -153,6 +148,9 @@ class Log:
             return datetime.now()
         return max(l.end for l in self)
 
+    def append(self, logitem):
+        self._logitems += (logitem, )
+
 
 class LogItemsParser:
     def __init__(self, LogItem=LogItem):
@@ -172,11 +170,15 @@ class LogItemsParser:
             )
             if start and end and description:
                 yield self.LogItem(
-                    start, end, description.split(DESCRIPTION_SEPARATOR)
+                    start, end, [t.strip() for t in description.split(DESCRIPTION_SEPARATOR)]
                 )
                 start, end, description = end, None, None
         if start and description:
-            yield self.LogItem(start, None, description.split(DESCRIPTION_SEPARATOR))
+            yield self.LogItem(
+                start,
+                None,
+                [t.strip() for t in description.split(DESCRIPTION_SEPARATOR)]
+            )
 
     def advance_start_end_description(self, line, start, end, description):
         maybe_date = self.parse_date(line)

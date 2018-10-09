@@ -192,5 +192,16 @@ living / holidays / barcelona
 living / holidays / barcelona
 2018-06-01 00:00""")
 
+    def test_bug_001(self):
+        log = Log("""2018-10-04 11:55
+living / hanging
+2018-10-04 13:10
+a3m / no-rm""")
+        output = log.filter('a3m')
+        print('output', output)
+        self.assertEqual(str(output), """2018-10-04 13:10
+a3m / no-rm""")
+
+
 if __name__ == '__main__':
     unittest.main()

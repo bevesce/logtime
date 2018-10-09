@@ -15,7 +15,7 @@ class FixingLogItem(LogItem):
     def str(self, next):
         result = self.start.strftime(DATETIME_FORMAT)
         result += '\n' + WHITESPACED_DESCRIPTION_SEPARATOR.join(self.tags)
-        if next and self.end < next.start and self.start <= self.end:
+        if next and self.end and self.end < next.start and self.start <= self.end:
             result += '\n' + self.end.strftime(DATETIME_FORMAT)
         return result
 
