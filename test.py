@@ -238,5 +238,19 @@ test
 2019-01-01 01:00
 last""")
 
+    def test03(self):
+        text = """2017-09-18 08:49
+a3m
+2017-09-18 17:49
+2017-09-19 08:58
+a3m
+2017-09-19 17:58
+2017-09-20 08:57
+a3m
+2017-09-20 17:57"""
+        log = Log(text)
+        self.assertEqual(str(log), text)
+
+
 if __name__ == '__main__':
     unittest.main()

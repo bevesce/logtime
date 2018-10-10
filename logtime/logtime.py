@@ -75,10 +75,15 @@ class Log:
         return LogItemsParser().parse_text(text)
 
     def __str__(self):
-        text = '\n'.join(i.__str__(include_end=False) for i in self)
-        if self and self._logitems[-1].ended:
-            text += '\n{}'.format(self.get_end().strftime(DATETIME_FORMAT))
-        return text
+        texts = []
+        for logitem, next_logitem in zip(self, list(self)[1:] + [None]):
+            include_end = True
+            if not next_logitem and not logitem.ended:
+                include_end = False
+            if next_logitem and next_logitem.start == logitem.end:
+                include_end = False
+            texts.append(logitem.__str__(include_end=include_end))
+        return '\n'.join(texts)
 
     def __eq__(self, other):
         return set(self._logitems) == set(other._logitems)
